@@ -1,46 +1,51 @@
-// Smoke test: resolve a Teams meeting by join URL, then post "Hello from Interviewly"
+// Smoke test: find a Teams meeting chat by topic, then post "Hello from Interviewly"
 // into the meeting chat as the Bot User.
-// Usage: MEETING_JOIN_URL="https://teams.microsoft.com/l/meetup-join/..." pnpm smoke:send-message
+// Usage: MEETING_TOPIC="Interviewly smoke test" pnpm smoke:send-message
+// Fallback: MEETING_JOIN_URL="https://..." still works if the bot is the organizer.
 
 import { config as dotenv } from "dotenv";
 dotenv({ path: ".env.local" });
 import "isomorphic-fetch";
 import { getDelegatedClient } from "../src/lib/graph/client";
+import { findMeetingChatByTopic } from "../src/lib/graph/meeting";
 
 async function main() {
+  const topic = process.env.MEETING_TOPIC;
   const joinUrl = process.env.MEETING_JOIN_URL;
-  if (!joinUrl) {
-    console.error("Set MEETING_JOIN_URL env var before running this script.");
-    console.error('Example: MEETING_JOIN_URL="https://teams.microsoft.com/..." pnpm smoke:send-message');
+
+  let chatId: string;
+  let meetingId: string | undefined;
+
+  if (topic) {
+    console.log(`Finding meeting chat by topic: "${topic}"…`);
+    const result = await findMeetingChatByTopic(topic);
+    chatId = result.chatId;
+    meetingId = result.meetingId;
+    console.log(`✓ Found chat: ${chatId}`);
+    if (meetingId) console.log(`  calendarEventId: ${meetingId}`);
+  } else if (joinUrl) {
+    console.log("Resolving meeting by join URL (legacy)…");
+    const client = await getDelegatedClient();
+    const meetingsRes = await client
+      .api("/me/onlineMeetings")
+      .filter(`joinWebUrl eq '${joinUrl}'`)
+      .get();
+    const meetings: Array<{ id: string; chatInfo?: { threadId?: string }; subject?: string }> =
+      meetingsRes.value ?? [];
+    if (meetings.length === 0) throw new Error("No meeting found with that join URL.");
+    const meeting = meetings[0];
+    if (!meeting.chatInfo?.threadId) throw new Error("Meeting has no chatInfo.threadId.");
+    chatId = meeting.chatInfo.threadId;
+    meetingId = meeting.id;
+    console.log(`✓ Resolved meeting "${meeting.subject ?? meeting.id}" — chatId: ${chatId}`);
+  } else {
+    console.error("Set MEETING_TOPIC (preferred) or MEETING_JOIN_URL env var before running.");
+    console.error('Example: MEETING_TOPIC="Interviewly smoke test" pnpm smoke:send-message');
     process.exit(1);
   }
 
   const client = await getDelegatedClient();
-
-  console.log("Resolving meeting by join URL...");
-  const meetingsRes = await client
-    .api("/me/onlineMeetings")
-    .filter(`joinWebUrl eq '${joinUrl}'`)
-    .get();
-
-  const meetings: Array<{ id: string; chatInfo?: { threadId?: string }; subject?: string }> =
-    meetingsRes.value ?? [];
-
-  if (meetings.length === 0) {
-    throw new Error(
-      "No meeting found with that join URL. Make sure the Bot User was invited to the meeting."
-    );
-  }
-
-  const meeting = meetings[0];
-  const chatId = meeting.chatInfo?.threadId;
-  if (!chatId) throw new Error("Meeting found but has no chatInfo.threadId.");
-
-  console.log(`✓ Resolved meeting "${meeting.subject ?? meeting.id}"`);
-  console.log(`  meetingId: ${meeting.id}`);
-  console.log(`  chatId:    ${chatId}`);
-
-  console.log("Posting message to meeting chat...");
+  console.log("Posting message to meeting chat…");
   const msg = await client.api(`/chats/${chatId}/messages`).post({
     body: {
       contentType: "html",
@@ -49,6 +54,7 @@ async function main() {
   });
 
   console.log(`✓ Message posted! id=${msg.id}, createdAt=${msg.createdDateTime}`);
+  console.log("\n✅ smoke-send-message passed");
 }
 
 main().catch((err) => {

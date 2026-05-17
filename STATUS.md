@@ -1,6 +1,6 @@
 # Interviewly — Build Status
 
-**Last updated:** 2026-05-17 (Day 1 complete)
+**Last updated:** 2026-05-17 (Days 1–7 complete — full app built)
 **Expo:** 2026-06-01 to 2026-06-05
 **Repo:** https://github.com/sidinsomniac/interviewly
 
@@ -11,10 +11,10 @@
 | Day | Date | Focus | Status |
 |-----|------|-------|--------|
 | 1 | Mon May 18 | Scaffold + Graph auth | ✅ Done (1 blocker — see below) |
-| 2 | Tue May 19 | LLM + transcript pipeline | ⬜ Not started |
-| 3 | Wed May 20 | UI shell + Create Interview | ⬜ Not started |
-| 4 | Thu May 21 | Live dashboard + question posting | ⬜ Not started |
-| 5 | Fri May 22 | End-interview pipeline + Excel | ⬜ Not started |
+| 2 | Tue May 19 | LLM + transcript pipeline | ✅ Done |
+| 3 | Wed May 20 | UI shell + Create Interview | ✅ Done |
+| 4 | Thu May 21 | Live dashboard + question posting | ✅ Done |
+| 5 | Fri May 22 | End-interview pipeline + Excel | ✅ Done |
 | 6 | Sat May 23 | Polish + demo rehearsal | ⬜ Not started |
 | 7 | Sun May 24 | Buffer / Verdict kickoff | ⬜ Not started |
 
@@ -36,7 +36,7 @@
 | `src/lib/graph/auth.ts` | `getAppToken()` (client credentials) + `getDelegatedToken()` (ROPC), both with in-memory token caching |
 | `src/lib/graph/client.ts` | `getAppClient()` + `getDelegatedClient()` — two Graph client factories |
 | `scripts/smoke-graph.ts` | Verifies delegated auth via `GET /me/chats` |
-| `scripts/smoke-send-message.ts` | Resolves a meeting by join URL, posts "Hello from Interviewly" to chat |
+| `scripts/smoke-send-message.ts` | Resolves a meeting by topic (or join URL fallback), posts "Hello from Interviewly" to chat |
 | `data/samples/` | PS probe form sample Excel committed as template reference |
 
 ### Day 1 blocker — NOT yet resolved ⚠️
@@ -48,9 +48,9 @@
 2. Sign in as `interviewly.bot@RecipeBari.onmicrosoft.com`.
 3. If it prompts for a password change, set a new one and update `MS_BOT_USER_PASSWORD` in `.env.local`.
 4. Re-run `pnpm smoke:graph` → should print `✓ Delegated token works`.
-5. Schedule a Teams test meeting with the bot as attendee, then run:
+5. Schedule a Teams test meeting, invite the bot, then run:
    ```
-   MEETING_JOIN_URL="<join-url>" pnpm smoke:send-message
+   MEETING_TOPIC="<meeting subject>" pnpm smoke:send-message
    ```
    Verify the message appears in Teams desktop under "Interviewly Bot".
 
@@ -58,20 +58,74 @@
 
 ---
 
-## Day 2 — Not started ⬜
+## Days 2–5 — Done ✅
 
-**Goal:** generate a question plan from a JD + fetch a real Teams transcript.
+### Server-side library layer (Phase A)
 
-Files to build:
-- `src/lib/probeform/rows.ts` — CORE_ROWS and REACT_ROWS competency arrays
-- `src/lib/llm.ts` — LLM provider factory (Gemini / Claude / OpenAI)
-- `src/lib/llm/question-plan.ts` — `generateQuestionPlan()`
-- `src/lib/graph/meeting.ts` — `resolveMeeting(joinUrl)`
-- `src/lib/graph/transcript.ts` — VTT fetcher + parser
-- `scripts/smoke-question-plan.ts`
-- `scripts/smoke-transcript.ts`
+| File | Description |
+|------|-------------|
+| `src/lib/probeform/rows.ts` | CORE_ROWS + REACT_ROWS competency arrays, row indices matching probe form |
+| `src/lib/llm.ts` | LLM factory — Gemini via `@langchain/google-genai`, with Claude/OpenAI stubs |
+| `src/lib/llm/question-plan.ts` | `generateQuestionPlan()` — structured output with JSON fallback |
+| `src/lib/llm/transcript-mapping.ts` | `mapTranscriptToProbeForm()` — temp 0.2, 3 retries |
+| `src/lib/graph/meeting.ts` | `resolveMeeting()` + `findMeetingChatByTopic()` |
+| `src/lib/graph/transcript.ts` | `resolveOrganizerGuid()` / `listTranscripts()` / `fetchTranscriptVtt()` / `parseVtt()` |
+| `src/lib/graph/chat.ts` | `sendChatMessage()` + `formatQuestionMessage()` |
+| `src/lib/graph/chatHistory.ts` | `fetchChatMessages()` — GET chats/{chatId}/messages |
+| `src/lib/store.ts` | In-memory Map store for interview state |
+| `src/lib/transcript-merge.ts` | Merge VTT + chat segments, sort by startTime |
+| `src/lib/probeform/template.ts` | HEADER_CELLS + CORE/REACT_CELL_MAP constants |
+| `src/lib/probeform/filler.ts` | `loadTemplate()` / `fillRound()` / `addMetaSheet()` / `toBuffer()` |
 
-**Checkpoint:** `pnpm smoke:question-plan` prints a valid 12–20 question plan. `pnpm smoke:transcript` prints transcript segments from a real meeting.
+### API routes (Phase B)
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/interviews` | POST | Create interview: validate → resolveMeeting → generateQuestionPlan → store |
+| `/api/interviews` | GET | List all interviews |
+| `/api/interviews/[id]` | GET | Get single interview |
+| `/api/interviews/[id]/post-question` | POST | Post a question to Teams chat |
+| `/api/interviews/[id]/end` | POST | End interview; fire-and-forget finalize (poll transcript → fill Excel) |
+| `/api/interviews/[id]/probe-form` | GET | Stream .xlsx download |
+| `/api/interviews/[id]/upload-transcript` | POST | Manual VTT/TXT upload fallback |
+
+### UI pages and components (Phase C)
+
+| File | Description |
+|------|-------------|
+| `app/page.tsx` | Landing page — hero, CTA, feature cards |
+| `app/layout.tsx` | Root layout with Geist fonts + Sonner toaster |
+| `app/interviews/page.tsx` | Interview list with status badges, download links |
+| `app/interviews/new/page.tsx` | New interview form page |
+| `src/components/NewInterviewForm.tsx` | react-hook-form + Zod form, POSTs to API |
+| `app/interviews/[id]/plan/page.tsx` | Question plan view |
+| `src/components/QuestionPlanView.tsx` | Renders planned questions with rubric badges |
+| `app/interviews/[id]/live/page.tsx` | Live interview dashboard |
+| `src/components/LiveDashboard.tsx` | Two-column layout shell |
+| `src/components/QuestionList.tsx` | Question rows with Post buttons + consent row |
+| `src/components/StatusPanel.tsx` | Posted count, End Interview with confirm dialog |
+| `app/interviews/[id]/result/page.tsx` | Result page |
+| `src/components/ResultClient.tsx` | Polls every 3s; shows progress → download / error + retry |
+| `src/components/TranscriptUpload.tsx` | Drag-and-drop .vtt/.txt upload |
+| `src/components/LoadingStates.tsx` | `Spinner`, `SkeletonLine`, `StatusBadge` |
+
+### Smoke scripts (Phase D)
+
+| Script | Usage |
+|--------|-------|
+| `scripts/smoke-question-plan.ts` | `pnpm smoke:question-plan` — generates 12–20 React round questions |
+| `scripts/smoke-transcript.ts` | `MEETING_ID=xxx pnpm smoke:transcript` — fetches VTT from real meeting |
+| `scripts/smoke-excel.ts` | `pnpm smoke:excel` — writes `data/output/smoke-test.xlsx` ✅ |
+
+### Verification results
+
+| Check | Status |
+|-------|--------|
+| `pnpm tsc --noEmit` | ✅ Zero errors |
+| `pnpm smoke:excel` | ✅ Writes smoke-test.xlsx successfully |
+| `pnpm smoke:question-plan` | ⬜ Requires valid `GEMINI_API_KEY` in `.env.local` |
+| `pnpm smoke:transcript` | ⬜ Requires resolved Bot User auth + `MEETING_ID` |
+| `pnpm dev` | ⬜ Not yet tested (requires `.env.local` config) |
 
 ---
 
@@ -79,10 +133,11 @@ Files to build:
 
 | # | Issue | Status |
 |---|-------|--------|
-| 1 | Bot User ROPC auth failing (`AADSTS50126`) | ⚠️ Needs manual fix (see Day 1 blocker above) |
-| 2 | SSH push to GitHub not working (host key) | ✅ Worked around with HTTPS push |
-| 3 | CodeSandbox vs StackBlitz for exercises | Pending — decide on Day 4 |
-| 4 | Demo persona (strong candidate vs ambiguous) | Pending — decide on Day 6 |
+| 1 | Bot User ROPC auth failing (`AADSTS50126`) | ⚠️ Needs manual fix (sign in to office.com as the bot, set password) |
+| 2 | `resolveMeeting(joinUrl)` fails — Graph 3003 if bot is not meeting organizer | ✅ Fixed — use `findMeetingChatByTopic()` instead |
+| 3 | SSH push to GitHub not working (host key) | ✅ Worked around with HTTPS push |
+| 4 | CodeSandbox vs StackBlitz for exercises | Pending — decide Day 6 |
+| 5 | Demo persona (strong candidate vs ambiguous) | Pending — decide Day 6 |
 
 ---
 
