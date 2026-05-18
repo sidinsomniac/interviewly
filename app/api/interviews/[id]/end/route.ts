@@ -26,7 +26,8 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
 
     if (!injectedVttSegments) {
       // Poll for transcript with exponential backoff
-      const organizerGuid = await resolveOrganizerGuid(config.ms.organizerEmail);
+      const organizerGuid = interview.organizerGuid
+        ?? await resolveOrganizerGuid(config.ms.organizerEmail);
       const delays = [5, 10, 20, 40, 80, 120];
       let transcripts: Array<{ id: string }> = [];
 

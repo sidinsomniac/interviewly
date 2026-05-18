@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { store } from "@/lib/store";
-import { resolveMeeting } from "@/lib/graph/meeting";
+import { findMeetingChatByTopic, resolveOnlineMeetingId } from "@/lib/graph/meeting";
 import { generateQuestionPlan } from "@/lib/llm/question-plan";
 import { CreateInterviewRequestSchema } from "@/types/index";
 
@@ -14,10 +14,14 @@ export async function POST(req: NextRequest) {
 
     const {
       candidateName, candidateTotalYears, candidateRelevantYears,
-      roleAppliedFor, round, jdText, chosenExerciseId, meetingJoinUrl,
+      roleAppliedFor, round, jdText, chosenExerciseId, meetingTopic,
     } = parsed.data;
 
-    const { meetingId, chatId } = await resolveMeeting(meetingJoinUrl);
+    const { chatId, organizerGuid, joinWebUrl } = await findMeetingChatByTopic(meetingTopic);
+
+    const meetingId = (organizerGuid && joinWebUrl)
+      ? await resolveOnlineMeetingId(organizerGuid, joinWebUrl)
+      : undefined;
 
     const questionPlan = await generateQuestionPlan({
       round, roleAppliedFor, candidateTotalYears, candidateRelevantYears, jdText,
@@ -26,7 +30,7 @@ export async function POST(req: NextRequest) {
     const interview = store.create({
       candidateName, candidateTotalYears, candidateRelevantYears,
       roleAppliedFor, round, jdText, chosenExerciseId,
-      meetingJoinUrl, meetingId, chatId,
+      meetingTopic, meetingId, chatId, organizerGuid,
       questionPlan,
       status: "draft",
       postedQuestionIndices: [],

@@ -15,7 +15,7 @@ const FormSchema = z.object({
   roleAppliedFor: z.string().min(1, "Required"),
   round: z.enum(["Core", "React"]),
   jdText: z.string().optional(),
-  meetingJoinUrl: z.string().url("Must be a valid URL"),
+  meetingTopic: z.string().min(1, "Required"),
 });
 
 type FormValues = z.infer<typeof FormSchema>;
@@ -86,12 +86,15 @@ export function NewInterviewForm() {
         />
       </Field>
 
-      <Field label="Teams Meeting Join URL" error={errors.meetingJoinUrl?.message}>
+      <Field label="Meeting Subject / Topic" error={errors.meetingTopic?.message}>
         <input
-          {...register("meetingJoinUrl")}
+          {...register("meetingTopic")}
           className={input()}
-          placeholder="https://teams.microsoft.com/l/meetup-join/…"
+          placeholder="e.g. Interview – Jane Doe"
         />
+        <p className="mt-1 text-xs text-gray-400">
+          The subject of the Teams meeting you scheduled. The bot finds the meeting chat by matching this text. Tip: this is the calendar event&apos;s subject line in Outlook.
+        </p>
       </Field>
 
       <button

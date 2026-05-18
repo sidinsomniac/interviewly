@@ -14,15 +14,14 @@ async function main() {
   const joinUrl = process.env.MEETING_JOIN_URL;
 
   let chatId: string;
-  let meetingId: string | undefined;
 
   if (topic) {
     console.log(`Finding meeting chat by topic: "${topic}"…`);
     const result = await findMeetingChatByTopic(topic);
     chatId = result.chatId;
-    meetingId = result.meetingId;
     console.log(`✓ Found chat: ${chatId}`);
-    if (meetingId) console.log(`  calendarEventId: ${meetingId}`);
+    if (result.organizerGuid) console.log(`  organizerGuid: ${result.organizerGuid}`);
+    if (result.joinWebUrl) console.log(`  joinWebUrl: ${result.joinWebUrl}`);
   } else if (joinUrl) {
     console.log("Resolving meeting by join URL (legacy)…");
     const client = await getDelegatedClient();
@@ -36,7 +35,6 @@ async function main() {
     const meeting = meetings[0];
     if (!meeting.chatInfo?.threadId) throw new Error("Meeting has no chatInfo.threadId.");
     chatId = meeting.chatInfo.threadId;
-    meetingId = meeting.id;
     console.log(`✓ Resolved meeting "${meeting.subject ?? meeting.id}" — chatId: ${chatId}`);
   } else {
     console.error("Set MEETING_TOPIC (preferred) or MEETING_JOIN_URL env var before running.");

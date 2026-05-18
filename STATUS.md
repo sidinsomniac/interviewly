@@ -134,7 +134,7 @@
 | # | Issue | Status |
 |---|-------|--------|
 | 1 | Bot User ROPC auth failing (`AADSTS50126`) | ⚠️ Needs manual fix (sign in to office.com as the bot, set password) |
-| 2 | `resolveMeeting(joinUrl)` fails — Graph 3003 if bot is not meeting organizer | ✅ Fixed — use `findMeetingChatByTopic()` instead |
+| 2 | `resolveMeeting(joinUrl)` fails — Graph 3003 if bot is not meeting organizer | ✅ Fixed — API now uses `findMeetingChatByTopic()` + `resolveOnlineMeetingId()`; form field changed to Meeting Topic |
 | 3 | SSH push to GitHub not working (host key) | ✅ Worked around with HTTPS push |
 | 4 | CodeSandbox vs StackBlitz for exercises | Pending — decide Day 6 |
 | 5 | Demo persona (strong candidate vs ambiguous) | Pending — decide Day 6 |

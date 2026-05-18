@@ -47,9 +47,10 @@ export interface InterviewMetadata {
   jdText?: string;
   chosenExerciseId?: string;
 
-  meetingJoinUrl: string;
+  meetingTopic: string;
   meetingId?: string;
   chatId?: string;
+  organizerGuid?: string;
 
   questionPlan?: QuestionPlan;
   postedQuestionIndices: number[];
@@ -167,7 +168,7 @@ export interface CreateInterviewRequest {
   round: InterviewRound;
   jdText?: string;
   chosenExerciseId?: string;
-  meetingJoinUrl: string;
+  meetingTopic: string;
 }
 export type CreateInterviewResponse =
   | { ok: true; interview: InterviewMetadata }
@@ -200,7 +201,7 @@ export const CreateInterviewRequestSchema = z.object({
   round: z.enum(["Core", "React"]),
   jdText: z.string().optional(),
   chosenExerciseId: z.string().optional(),
-  meetingJoinUrl: z.string().url(),
+  meetingTopic: z.string().min(1),
 });
 
 export const PlannedQuestionSchema = z.object({

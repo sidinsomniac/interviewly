@@ -1,39 +1,68 @@
-import { getDelegatedClient } from "@/lib/graph/client";
+import { getDelegatedClient, getAppClient } from "@/lib/graph/client";
 
 export async function findMeetingChatByTopic(
   topic: string
-): Promise<{ chatId: string; meetingId?: string }> {
+): Promise<{ chatId: string; organizerGuid?: string; joinWebUrl?: string }> {
   const client = await getDelegatedClient();
 
   const res = await client
     .api("/me/chats")
-    .query({ $top: 50, $orderby: "lastUpdatedDateTime desc" })
+    .query({ $top: 50, $expand: "lastMessagePreview" })
     .get();
 
   const chats: Array<{
     id: string;
     chatType?: string;
     topic?: string;
-    onlineMeetingInfo?: { calendarEventId?: string };
+    lastUpdatedDateTime?: string;
+    onlineMeetingInfo?: {
+      calendarEventId?: string;
+      joinWebUrl?: string;
+      organizer?: { id?: string };
+    };
   }> = res.value ?? [];
 
-  const match = chats.find(
-    (c) =>
-      c.chatType === "meeting" &&
-      c.topic?.toLowerCase().includes(topic.toLowerCase())
-  );
+  const meetingChats = chats.filter((c) => c.chatType === "meeting");
 
-  if (!match) {
+  const matches = meetingChats
+    .filter((c) => c.topic?.toLowerCase().includes(topic.toLowerCase()))
+    .sort((a, b) => {
+      const ta = a.lastUpdatedDateTime ? new Date(a.lastUpdatedDateTime).getTime() : 0;
+      const tb = b.lastUpdatedDateTime ? new Date(b.lastUpdatedDateTime).getTime() : 0;
+      return tb - ta;
+    });
+
+  if (matches.length === 0) {
+    const found = meetingChats.map((c) => c.topic ?? "(no topic)").join(", ");
     throw new Error(
       `No meeting chat found with topic containing "${topic}". ` +
+      `Meeting chats visible to the bot: [${found || "none"}]. ` +
       "Make sure the Bot User is a participant and the meeting has started."
     );
   }
 
   return {
-    chatId: match.id,
-    meetingId: match.onlineMeetingInfo?.calendarEventId,
+    chatId: matches[0].id,
+    organizerGuid: matches[0].onlineMeetingInfo?.organizer?.id ?? undefined,
+    joinWebUrl: matches[0].onlineMeetingInfo?.joinWebUrl ?? undefined,
   };
+}
+
+export async function resolveOnlineMeetingId(
+  organizerGuid: string,
+  joinWebUrl: string
+): Promise<string | undefined> {
+  try {
+    const client = await getAppClient();
+    const res = await client
+      .api(`/users/${organizerGuid}/onlineMeetings`)
+      .filter(`JoinWebUrl eq '${joinWebUrl}'`)
+      .get();
+    const meetings: Array<{ id: string }> = res.value ?? [];
+    return meetings[0]?.id;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function resolveMeeting(joinUrl: string): Promise<{ meetingId: string; chatId: string }> {
