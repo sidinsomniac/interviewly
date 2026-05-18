@@ -1,6 +1,14 @@
 import { getDelegatedClient } from "@/lib/graph/client";
 import type { TranscriptSegment } from "@/types/index";
 
+type ChatMessage = {
+  id: string;
+  createdDateTime: string;
+  from?: { user?: { displayName?: string } };
+  body?: { content?: string; contentType?: string };
+  messageType?: string;
+};
+
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -8,24 +16,24 @@ function stripHtml(html: string): string {
 export async function fetchChatMessages(chatId: string): Promise<TranscriptSegment[]> {
   const client = await getDelegatedClient();
 
-  const res = await client
+  let res = await client
     .api(`/chats/${chatId}/messages`)
-    .orderby("createdDateTime asc")
-    .top(100)
+    .orderby("createdDateTime desc")
+    .top(50)
     .get();
 
-  const messages: Array<{
-    id: string;
-    createdDateTime: string;
-    from?: { user?: { displayName?: string } };
-    body?: { content?: string; contentType?: string };
-    messageType?: string;
-  }> = res.value ?? [];
+  const allMessages: ChatMessage[] = [...(res.value ?? [])];
+
+  while (res["@odata.nextLink"]) {
+    res = await client.api(res["@odata.nextLink"]).get();
+    allMessages.push(...(res.value ?? []));
+  }
+
+  allMessages.reverse(); // Graph returns desc; restore chronological order for merge
 
   const segments: TranscriptSegment[] = [];
 
-  for (const msg of messages) {
-    // Skip system/event messages and empty bodies
+  for (const msg of allMessages) {
     if (msg.messageType !== "message") continue;
     const rawContent = msg.body?.content ?? "";
     if (!rawContent || rawContent === "<systemEventMessage/>") continue;

@@ -1,5 +1,6 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { config } from "@/lib/config";
 
@@ -23,7 +24,6 @@ export function getChatModel(temperature = 0.5): BaseChatModel {
   }
 
   if (provider === "openai") {
-    const { ChatOpenAI } = require("@langchain/openai");
     const apiKey = config.llm.openaiKey;
     if (!apiKey) throw new Error("OPENAI_API_KEY is required when MODEL_PROVIDER=openai");
     return new ChatOpenAI({ model: config.llm.modelId, apiKey, temperature });
