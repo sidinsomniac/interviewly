@@ -1,4 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatAnthropic } from "@langchain/anthropic";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { config } from "@/lib/config";
 
@@ -16,8 +17,6 @@ export function getChatModel(temperature = 0.5): BaseChatModel {
   }
 
   if (provider === "anthropic") {
-    // Dynamically import so the package isn't required unless used
-    const { ChatAnthropic } = require("@langchain/anthropic");
     const apiKey = config.llm.anthropicKey;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required when MODEL_PROVIDER=anthropic");
     return new ChatAnthropic({ model: config.llm.modelId, apiKey, temperature });
