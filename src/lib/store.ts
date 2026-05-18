@@ -1,6 +1,16 @@
 import type { InterviewMetadata } from "@/types/index";
+import { persistInterviews, loadInterviews } from "@/lib/persist";
 
-const interviews = new Map<string, InterviewMetadata>();
+const globalForStore = globalThis as unknown as {
+  __interviewlyInterviews?: Map<string, InterviewMetadata>;
+};
+
+const interviews: Map<string, InterviewMetadata> =
+  globalForStore.__interviewlyInterviews ?? loadInterviews();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForStore.__interviewlyInterviews = interviews;
+}
 
 export const store = {
   create(data: Omit<InterviewMetadata, "id" | "createdAt" | "updatedAt">): InterviewMetadata {
@@ -12,6 +22,7 @@ export const store = {
       updatedAt: now,
     };
     interviews.set(interview.id, interview);
+    persistInterviews(interviews);
     return interview;
   },
 
@@ -24,6 +35,7 @@ export const store = {
     if (!existing) return undefined;
     const updated: InterviewMetadata = { ...existing, ...patch, id, updatedAt: new Date().toISOString() };
     interviews.set(id, updated);
+    persistInterviews(interviews);
     return updated;
   },
 
@@ -34,6 +46,8 @@ export const store = {
   },
 
   delete(id: string): boolean {
-    return interviews.delete(id);
+    const deleted = interviews.delete(id);
+    if (deleted) persistInterviews(interviews);
+    return deleted;
   },
 };

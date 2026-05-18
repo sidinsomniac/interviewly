@@ -123,6 +123,7 @@
 |-------|--------|
 | `pnpm tsc --noEmit` | ✅ Zero errors |
 | `pnpm smoke:excel` | ✅ Writes smoke-test.xlsx successfully |
+| Store survives hot-reload (globalThis) + restarts (JSON) | ✅ |
 | `pnpm smoke:question-plan` | ⬜ Requires valid `GEMINI_API_KEY` in `.env.local` |
 | `pnpm smoke:transcript` | ⬜ Requires resolved Bot User auth + `MEETING_ID` |
 | `pnpm dev` | ⬜ Not yet tested (requires `.env.local` config) |
