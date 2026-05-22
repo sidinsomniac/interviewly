@@ -59,7 +59,7 @@ Generate the question plan now.`;
     ]);
     const text = typeof response.content === "string" ? response.content : JSON.stringify(response.content);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("LLM returned no JSON for question plan");
+    if (!jsonMatch) throw new Error("Model returned no parseable JSON for question plan");
     raw = QuestionPlanSchema.parse(JSON.parse(jsonMatch[0]));
   }
 

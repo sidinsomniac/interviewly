@@ -107,11 +107,11 @@ Now fill out the probe form.`;
         ]);
         const text = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
         const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error("LLM returned no JSON for probe form");
+        if (!jsonMatch) throw new Error("Model returned no parseable JSON for probe form");
         result = FilledProbeFormSchema.parse(JSON.parse(jsonMatch[0]));
       }
 
-      // Inject fields not set by LLM
+      // Override with authoritative candidate metadata
       const parsed = result as FilledProbeForm;
       parsed.round = round;
       parsed.header.candidateName   = candidateName;

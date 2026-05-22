@@ -41,3 +41,7 @@ data/tokens/
 # Editor
 .vscode/
 .idea/
+
+# Dev process (not part of the app)
+STATUS.md
+.claude/
