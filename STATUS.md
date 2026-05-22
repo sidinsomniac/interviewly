@@ -88,6 +88,7 @@
 | `/api/interviews/[id]/end` | POST | End interview; fire-and-forget finalize (poll transcript → fill Excel) |
 | `/api/interviews/[id]/probe-form` | GET | Stream .xlsx download |
 | `/api/interviews/[id]/upload-transcript` | POST | Manual VTT/TXT upload fallback |
+| `/api/schedule-interview` | POST | Medha/n8n integration: generate plan + create Teams meeting via Graph calendar → returns join URL, sends Outlook invite |
 
 ### UI pages and components (Phase C)
 
@@ -116,6 +117,7 @@
 | `scripts/smoke-question-plan.ts` | `pnpm smoke:question-plan` — generates 12–20 React round questions |
 | `scripts/smoke-transcript.ts` | `MEETING_ID=xxx pnpm smoke:transcript` — fetches VTT from real meeting |
 | `scripts/smoke-excel.ts` | `pnpm smoke:excel` — writes `data/output/smoke-test.xlsx` ✅ |
+| `scripts/smoke-schedule.ts` | `pnpm smoke:schedule` — POSTs to `/api/schedule-interview` (requires `pnpm dev` running) |
 
 ### Verification results
 

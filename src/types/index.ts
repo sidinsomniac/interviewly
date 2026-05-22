@@ -27,6 +27,7 @@ export type CareerStage =
 
 export type InterviewStatus =
   | "draft"
+  | "scheduled"
   | "in_progress"
   | "ended"
   | "completed"
@@ -49,6 +50,7 @@ export interface InterviewMetadata {
 
   meetingTopic: string;
   meetingId?: string;
+  meetingUrl?: string;
   chatId?: string;
   organizerGuid?: string;
 
@@ -189,6 +191,39 @@ export type EndInterviewResponse =
   | { ok: true; downloadUrl: string }
   | { ok: false; error: string };
 
+export interface ScheduleInterviewRequest {
+  candidateName: string;
+  candidateEmail: string;
+  jobTitle: string;
+  jobDescription: string;
+  requiredSkills: string;
+  yearsExperience: number;
+  scoringDetails: {
+    overallScore: number;
+    skillsMatch?: number;
+    experienceMatch?: number;
+    strengths: string;
+    gaps?: string;
+    recommendation: string;
+  };
+  interviewerEmail: string;
+  scheduledFor?: string;     // ISO; default now + 5 min
+  durationMinutes?: number;  // default 45
+}
+
+export type ScheduleInterviewResponse =
+  | {
+      ok: true;
+      interviewId: string;
+      meetingId: string;
+      meetingUrl: string;
+      meetingSubject: string;
+      chatId: string;
+      scheduledFor: string;
+      calendarEventId: string;
+    }
+  | { ok: false; error: string };
+
 // ------------------------------------------------------------
 // 6. Zod schemas (runtime validation + LLM structured output)
 // ------------------------------------------------------------
@@ -202,6 +237,26 @@ export const CreateInterviewRequestSchema = z.object({
   jdText: z.string().optional(),
   chosenExerciseId: z.string().optional(),
   meetingTopic: z.string().min(1),
+});
+
+export const ScheduleInterviewRequestSchema = z.object({
+  candidateName: z.string().min(1),
+  candidateEmail: z.string().email(),
+  jobTitle: z.string().min(1),
+  jobDescription: z.string().min(1),
+  requiredSkills: z.string(),
+  yearsExperience: z.number().min(0).max(50),
+  scoringDetails: z.object({
+    overallScore: z.number(),
+    skillsMatch: z.number().optional(),
+    experienceMatch: z.number().optional(),
+    strengths: z.string(),
+    gaps: z.string().optional(),
+    recommendation: z.string(),
+  }),
+  interviewerEmail: z.string().email(),
+  scheduledFor: z.string().optional(),
+  durationMinutes: z.number().optional(),
 });
 
 export const PlannedQuestionSchema = z.object({

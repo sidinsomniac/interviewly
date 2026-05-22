@@ -16,13 +16,14 @@ export function SkeletonLine({ className = "" }: { className?: string }) {
 export function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     draft:       "bg-gray-100 text-gray-700",
+    scheduled:   "bg-indigo-100 text-indigo-700",
     in_progress: "bg-blue-100 text-blue-700",
     ended:       "bg-yellow-100 text-yellow-700",
     completed:   "bg-green-100 text-green-700",
     failed:      "bg-red-100 text-red-700",
   };
   const labels: Record<string, string> = {
-    draft: "Draft", in_progress: "In Progress", ended: "Processing",
+    draft: "Draft", scheduled: "Scheduled", in_progress: "In Progress", ended: "Processing",
     completed: "Completed", failed: "Failed",
   };
   return (
