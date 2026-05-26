@@ -11,7 +11,8 @@
     "smoke:question-plan": "tsx scripts/smoke-question-plan.ts",
     "smoke:transcript": "tsx scripts/smoke-transcript.ts",
     "smoke:excel": "tsx scripts/smoke-excel.ts",
-    "smoke:schedule": "tsx scripts/smoke-schedule.ts"
+    "smoke:schedule": "tsx scripts/smoke-schedule.ts",
+    "smoke:end-interview-testmode": "tsx scripts/smoke-end-interview-testmode.ts"
   },
   "dependencies": {
     "@azure/msal-node": "^5.2.1",

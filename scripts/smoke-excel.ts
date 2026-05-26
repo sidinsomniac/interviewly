@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { loadTemplate, fillRound, addMetaSheet, toBuffer } from "../src/lib/probeform/filler";
 import { REACT_ROWS } from "../src/lib/probeform/rows";
+import { config } from "../src/lib/config";
 import type { FilledProbeForm, CompetencyEvaluation } from "../src/types/index";
 
 const competencies: CompetencyEvaluation[] = REACT_ROWS.map((row) => ({
@@ -48,8 +49,8 @@ async function main() {
   addMetaSheet(wb, {
     app: "interviewly",
     version: "0.1.0",
-    modelProvider: "google",
-    modelId: "gemini-1.5-pro",
+    modelProvider: config.llm.provider,
+    modelId: config.llm.modelId,
     generatedAt: new Date().toISOString(),
     meetingId: "smoke-test",
     transcriptSha256: "0".repeat(64),

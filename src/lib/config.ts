@@ -26,10 +26,16 @@ export const config = {
     get geminiKey()     { return optional("GEMINI_API_KEY"); },
     get anthropicKey()  { return optional("ANTHROPIC_API_KEY"); },
     get openaiKey()     { return optional("OPENAI_API_KEY"); },
+    get deepseekKey()   { return optional("DEEPSEEK_API_KEY"); },
+    get deepseekBaseUrl() { return process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1"; },
   },
   app: {
     get outputDir()   { return process.env.INTERVIEWLY_OUTPUT_DIR ?? "./data/output"; },
     get logLevel()    { return process.env.LOG_LEVEL ?? "info"; },
     get nextAuthUrl() { return process.env.NEXTAUTH_URL ?? "http://localhost:3000"; },
+    get testMode()    { return process.env.MEDHA_TEST_MODE === "true"; },
+    get fixtureRole() { return process.env.MEDHA_TEST_FIXTURE_ROLE ?? "react"; },
+    get fixtureOutcome() { return process.env.MEDHA_TEST_FIXTURE_OUTCOME ?? "good-hire"; },
+    get baseUrl()     { return process.env.MEDHA_BASE_URL?.trim() ?? "http://localhost:3000"; },
   },
 } as const;

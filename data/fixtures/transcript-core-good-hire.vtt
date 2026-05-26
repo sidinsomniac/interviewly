@@ -1,0 +1,125 @@
+WEBVTT
+
+1
+00:00:02.000 --> 00:00:08.000
+<v Sid Chatterjee>Hi, welcome. Let's start with HTML basics — what do we mean by semantic HTML and why does it matter?
+
+2
+00:00:09.000 --> 00:00:45.000
+<v Test Candidate>Semantic HTML means using the element that actually describes the content — nav for navigation, main for the primary content, article for a self-contained piece, button for an interactive button. It matters for accessibility because screen readers announce landmarks and roles based on these elements, and it matters for SEO because crawlers infer document structure. It also helps maintainability — a div with role=button and an onclick is brittle; a real button gives you focus management, keyboard activation, and form submission for free.
+
+3
+00:00:46.000 --> 00:00:52.000
+<v Sid Chatterjee>Browser storage — when do you use cookies, localStorage, sessionStorage, IndexedDB?
+
+4
+00:00:53.000 --> 00:01:38.000
+<v Test Candidate>Cookies for anything the server needs to read on every request — session ids, CSRF tokens. I set them httpOnly and secure and same-site=lax by default. localStorage for client-only persistent data that survives a tab close, like a theme preference. sessionStorage for per-tab state — like a draft form value that should disappear when the tab closes. IndexedDB when I need real structured storage with indexes — like an offline-first PWA caching API responses, or storing larger blobs like images.
+
+5
+00:01:39.000 --> 00:01:45.000
+<v Sid Chatterjee>Walk me through CSS specificity. How do you reason about it when debugging a style conflict?
+
+6
+00:01:46.000 --> 00:02:30.000
+<v Test Candidate>Specificity is the four-tuple of inline, ids, classes-attributes-pseudoclasses, and elements-pseudoelements. Higher wins, ties go to source order. When I'm debugging I open DevTools and look at the computed pane plus the styles pane — strikethrough rules tell you what was overridden. I avoid !important except for utility resets, and I keep selectors shallow — usually one or two classes deep. Layer-based architectures like ITCSS or the @layer rule are great for keeping the cascade predictable in a large codebase.
+
+7
+00:02:31.000 --> 00:02:37.000
+<v Sid Chatterjee>Flexbox vs grid — when do you reach for one over the other?
+
+8
+00:02:38.000 --> 00:03:18.000
+<v Test Candidate>Flex for one-dimensional layout — a row of nav items, a stack of form fields, anything where the items flow in a single direction with simple alignment. Grid for two-dimensional layout — a real page layout with sidebar plus header plus main plus footer, or a card grid with named template areas. I use grid for the macro layout and flex inside individual components. Subgrid is a recent addition that lets nested grids share tracks with their parent — really useful for aligning content across cards.
+
+9
+00:03:19.000 --> 00:03:25.000
+<v Sid Chatterjee>Have you used CSS-in-JS? Pros and cons?
+
+10
+00:03:26.000 --> 00:04:08.000
+<v Test Candidate>Yes — styled-components and Emotion. The big pro is colocation: styles live next to the component, no orphaned CSS files, no naming collisions. Type safety with TypeScript is nice. The cons are real though — runtime overhead, bundle size, and SSR complexity. The newer wave is zero-runtime CSS-in-JS like vanilla-extract or Linaria that extracts styles at build time. For new projects I lean toward Tailwind plus the @apply directive for shared component classes, or vanilla-extract if the team really wants the colocation.
+
+11
+00:04:09.000 --> 00:04:15.000
+<v Sid Chatterjee>JavaScript — explain how promises work and the difference between then/catch and async/await.
+
+12
+00:04:16.000 --> 00:05:00.000
+<v Test Candidate>A Promise is a placeholder for a future value with three states — pending, fulfilled, rejected. then registers a callback for fulfillment, catch for rejection, finally runs in both cases. async/await is sugar over the same primitive — an async function always returns a Promise, await unwraps it. The big practical difference is error handling — try/catch with await composes naturally with synchronous code, whereas chains can become unwieldy with multiple branches. One gotcha: forgetting to await means the next line runs against the unresolved Promise. I use the no-floating-promises lint rule to catch that.
+
+13
+00:05:01.000 --> 00:05:07.000
+<v Sid Chatterjee>Debounce vs throttle — when do you use each?
+
+14
+00:05:08.000 --> 00:05:42.000
+<v Test Candidate>Debounce when you want to wait for a quiet period before firing — like a search input where you wait until the user stops typing for 300ms. Throttle when you want to limit the rate but still fire at a regular interval — like a scroll handler updating a position at most every 100ms. I usually grab them from lodash to avoid subtle bugs in the trailing-edge behavior. For modern UIs I also lean on requestAnimationFrame for scroll and resize, since it naturally aligns with paint.
+
+15
+00:05:43.000 --> 00:05:49.000
+<v Sid Chatterjee>TypeScript — talk me through narrowing and discriminated unions.
+
+16
+00:05:50.000 --> 00:06:35.000
+<v Test Candidate>Narrowing is how TS shrinks a type based on control flow — typeof checks for primitives, instanceof for classes, the "in" operator for property presence, equality checks against a discriminant. A discriminated union is a union of object types that share a literal field — like { kind: "circle", radius } | { kind: "square", side }. Switching on the discriminant narrows each branch automatically. Pair that with an exhaustive default that asserts never and you get a compile error if someone adds a new variant without handling it everywhere. It's one of the most useful patterns in TypeScript.
+
+17
+00:06:36.000 --> 00:06:42.000
+<v Sid Chatterjee>tsconfig — what flags do you always turn on?
+
+18
+00:06:43.000 --> 00:07:18.000
+<v Test Candidate>strict is non-negotiable. Then noUncheckedIndexedAccess so array[i] returns T-or-undefined, which catches a huge class of off-by-one bugs. exactOptionalPropertyTypes to distinguish missing from explicit-undefined. isolatedModules for compatibility with build tools that transpile per file. moduleResolution bundler for modern setups. And I turn off allowJs unless I'm migrating a legacy codebase.
+
+19
+00:07:19.000 --> 00:07:25.000
+<v Sid Chatterjee>Bundlers — what's your current take on Vite versus webpack?
+
+20
+00:07:26.000 --> 00:08:00.000
+<v Test Candidate>For new projects I default to Vite. Cold start is sub-second, HMR is instant, and the dev server uses native ESM so you only transform what's imported. Build is Rollup-based which produces clean output. Webpack is still the right answer if you have a complex enterprise pipeline with many custom loaders or you depend on a plugin that hasn't been ported. Turbopack and Rspack are interesting alternatives — Rspack in particular is webpack-compatible with native-speed builds, worth watching.
+
+21
+00:08:01.000 --> 00:08:07.000
+<v Sid Chatterjee>Performance — how do you approach a slow page?
+
+22
+00:08:08.000 --> 00:08:52.000
+<v Test Candidate>Start with measurement, not guessing. Lighthouse for the headline metrics, WebPageTest for waterfall and filmstrip, Chrome DevTools Performance tab for runtime. Then identify the bottleneck — usually it's render-blocking JS, an oversized hero image, or a third-party script. Fixes in order: defer non-critical JS, preload the LCP element, code-split routes with React.lazy, move heavy compute to a web worker, and audit third-party tags ruthlessly. Cache aggressively at the edge with proper Cache-Control headers. And track Core Web Vitals in production with a RUM tool, not just lab data.
+
+23
+00:08:53.000 --> 00:08:59.000
+<v Sid Chatterjee>Security on the frontend — top concerns?
+
+24
+00:09:00.000 --> 00:09:42.000
+<v Test Candidate>XSS first. Sanitize any user content rendered as HTML, never use dangerouslySetInnerHTML on untrusted strings, and set a Content Security Policy that blocks inline scripts unless nonced. CSRF for state-changing requests — SameSite cookies plus tokens. Don't store JWTs in localStorage if you can put them in httpOnly cookies. Subresource Integrity hashes on any script you load from a CDN. And basic hygiene like X-Content-Type-Options nosniff and Strict-Transport-Security.
+
+25
+00:09:43.000 --> 00:09:49.000
+<v Sid Chatterjee>Accessibility beyond automated checks?
+
+26
+00:09:50.000 --> 00:10:30.000
+<v Test Candidate>Keyboard test every flow — tab order, focus visibility, escape key in modals, return focus on close. Screen reader test the critical paths with VoiceOver or NVDA at least once per release. Color contrast on actual text against actual backgrounds, including hover and focus states. Prefer real semantic elements over ARIA. Honor prefers-reduced-motion. And include accessibility in the definition of done so it doesn't get deprioritized at the end of the sprint.
+
+27
+00:10:31.000 --> 00:10:37.000
+<v Sid Chatterjee>Tooling — what does your lint and format setup look like?
+
+28
+00:10:38.000 --> 00:11:08.000
+<v Test Candidate>ESLint with typescript-eslint, react, react-hooks, and jsx-a11y plugins. Prettier with eslint-config-prettier so they don't fight. Husky plus lint-staged for pre-commit. CI runs lint, typecheck, and tests as parallel jobs so PR feedback is fast. I also run a build check in CI because lint and typecheck don't always catch bundler errors.
+
+29
+00:11:09.000 --> 00:11:15.000
+<v Sid Chatterjee>Great. Any questions for me?
+
+30
+00:11:16.000 --> 00:11:30.000
+<v Test Candidate>Curious about the release process, and how design and engineering collaborate at the spec stage.
+
+31
+00:11:31.000 --> 00:11:48.000
+<v Sid Chatterjee>Daily releases behind feature flags, weekly design-engineering sync. Thanks for the time — we'll be in touch this week.

@@ -156,6 +156,10 @@ export interface ProbeFormMeta {
   transcriptSha256: string;
   recruiterEmail: string;
   botUserEmail: string;
+  /** True when the probe form was generated from a TEST_MODE fixture rather than a real meeting. */
+  testMode?: boolean;
+  /** Identifier of the fixture used (e.g. "react/good-hire") when testMode is true. */
+  fixtureId?: string;
 }
 
 // ------------------------------------------------------------
@@ -266,7 +270,11 @@ export const PlannedQuestionSchema = z.object({
   questionText: z.string().min(10),
   followUpHints: z.array(z.string()).optional(),
   isHandsOnExercise: z.boolean().optional(),
-  exerciseUrl: z.string().url().optional(),
+  // Accept "" as an explicit sentinel for "no exercise". DeepSeek (and
+  // some Gemini outputs) emit the field on every question with "" when
+  // isHandsOnExercise is false, instead of omitting the key. Treat that
+  // as equivalent to omission rather than failing the whole plan.
+  exerciseUrl: z.union([z.string().url(), z.literal("")]).optional(),
 });
 
 export const QuestionPlanSchema = z.object({

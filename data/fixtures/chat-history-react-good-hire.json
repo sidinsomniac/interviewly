@@ -1,0 +1,73 @@
+[
+  {
+    "id": "msg-001",
+    "createdDateTime": "2026-05-27T10:00:05.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>👋 Hello and welcome! I'm Medha, your AI interviewer. This conversation will be analyzed by an AI assistant and a structured probe form will be generated for the hiring panel. The session is being recorded and transcribed for that purpose. By continuing, you consent to this process. Data retention: 30 days.</p>"
+    }
+  },
+  {
+    "id": "msg-002",
+    "createdDateTime": "2026-05-27T10:00:35.000Z",
+    "from": { "user": { "displayName": "Test Candidate" } },
+    "messageType": "message",
+    "body": { "contentType": "text", "content": "Got it, thanks — happy to proceed." }
+  },
+  {
+    "id": "msg-003",
+    "createdDateTime": "2026-05-27T10:01:55.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 1.</b> Walk us through when you'd reach for SSR vs SSG vs CSR vs ISR, and where RSC fits in.</p>"
+    }
+  },
+  {
+    "id": "msg-004",
+    "createdDateTime": "2026-05-27T10:06:10.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 2.</b> How would you render a list of 10,000 rows in React without killing performance? What about useMemo and useCallback — when are they worth it?</p>"
+    }
+  },
+  {
+    "id": "msg-005",
+    "createdDateTime": "2026-05-27T10:12:50.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 3.</b> For the hands-on round, please use this CoderPad link: <a href='http://localhost:3000/code/fixture-react/shopping-cart'>Shopping Cart Exercise</a>. You have 20 minutes — I'll see your code at the end.</p>"
+    }
+  },
+  {
+    "id": "msg-006",
+    "createdDateTime": "2026-05-27T10:13:20.000Z",
+    "from": { "user": { "displayName": "Test Candidate" } },
+    "messageType": "message",
+    "body": { "contentType": "text", "content": "Opening it now — will let you know when I'm done." }
+  },
+  {
+    "id": "msg-007",
+    "createdDateTime": "2026-05-27T10:33:40.000Z",
+    "from": { "user": { "displayName": "Test Candidate" } },
+    "messageType": "message",
+    "body": { "contentType": "text", "content": "Done — submitted." }
+  },
+  {
+    "id": "msg-008",
+    "createdDateTime": "2026-05-27T10:34:10.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Thanks. Final question: tell us about accessibility — what's your real-world approach beyond Lighthouse and axe?</p>"
+    }
+  }
+]

@@ -1,0 +1,49 @@
+[
+  {
+    "id": "msg-001",
+    "createdDateTime": "2026-05-27T11:00:05.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>👋 Hello and welcome! I'm Medha, your AI interviewer. This conversation will be analyzed by an AI assistant and a structured probe form will be generated for the hiring panel. By continuing, you consent to recording and AI analysis. Data retention: 30 days.</p>"
+    }
+  },
+  {
+    "id": "msg-002",
+    "createdDateTime": "2026-05-27T11:00:30.000Z",
+    "from": { "user": { "displayName": "Test Candidate" } },
+    "messageType": "message",
+    "body": { "contentType": "text", "content": "Confirmed. Let's go." }
+  },
+  {
+    "id": "msg-003",
+    "createdDateTime": "2026-05-27T11:01:10.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 1.</b> What does semantic HTML mean and why does it matter for accessibility and maintenance?</p>"
+    }
+  },
+  {
+    "id": "msg-004",
+    "createdDateTime": "2026-05-27T11:05:40.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 2.</b> Walk us through CSS specificity and how you debug a style conflict.</p>"
+    }
+  },
+  {
+    "id": "msg-005",
+    "createdDateTime": "2026-05-27T11:09:20.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 3.</b> Performance — how do you approach a page that feels slow in production?</p>"
+    }
+  }
+]

@@ -1,0 +1,169 @@
+WEBVTT
+
+1
+00:00:02.000 --> 00:00:09.500
+<v Sid Chatterjee>Hi, thanks for joining today. Could you start by telling me a bit about your background and the React work you've been doing recently?
+
+2
+00:00:10.000 --> 00:00:48.000
+<v Test Candidate>Sure. I've been working with React for about five years. Most recently at a fintech I led the rewrite of our trading dashboard from a CRA setup to a Next.js 14 app router project. We had a hard requirement around streaming the initial paint under 1.5 seconds even on mid-tier devices, so I leaned heavily on RSC and Suspense boundaries. Before that I spent two years on a design system team building reusable components published to a private npm registry, including a polymorphic Button using TypeScript generics and an Input that handled controlled and uncontrolled modes properly.
+
+3
+00:00:49.000 --> 00:00:56.000
+<v Sid Chatterjee>Good. Let's start with rendering patterns. Walk me through when you'd reach for SSR versus SSG versus client-only rendering, and where ISR fits in.
+
+4
+00:00:57.000 --> 00:01:48.000
+<v Test Candidate>I think of it as a spectrum keyed off of two things: how often the content changes and how personalized it is. SSG when the content is the same for every user and changes rarely, like marketing pages or docs — you get the cheapest cache hit at the CDN edge. ISR is the same idea but with a TTL so editors don't have to redeploy; you trade staleness for ergonomics. SSR when the page is per-user or per-request — auth-gated dashboards, search result pages — you pay for compute on every request but you avoid client-side flicker. CSR when interactivity dominates and SEO doesn't matter, like a logged-in workspace. In Next 14 it gets blurrier because RSC lets you mix server components for the shell and client components for the interactive bits, which is usually the right answer for a real app.
+
+5
+00:01:49.000 --> 00:01:55.000
+<v Sid Chatterjee>Nice. How would you handle a list of 10,000 rows in React without killing performance?
+
+6
+00:01:56.000 --> 00:02:38.000
+<v Test Candidate>Don't render 10,000 DOM nodes. Virtualize with react-window or TanStack Virtual — they render only the visible window plus a small overscan. You also have to give each row a stable key, not the array index, because if the data reorders React will reuse the wrong DOM. For the data side I'd memoize the row component with React.memo and pass a stable callback via useCallback so the row doesn't re-render on parent updates. If the rows are heavy I'd also profile with the React DevTools profiler to see if a context update is forcing a re-render and split the context if so.
+
+7
+00:02:39.000 --> 00:02:46.000
+<v Sid Chatterjee>Tell me about useMemo and useCallback. When are they worth it and when are they noise?
+
+8
+00:02:47.000 --> 00:03:30.000
+<v Test Candidate>The honest answer is most people overuse them. useMemo is worth it when the computation is genuinely expensive — a large sort, a tree flatten — or when the referential identity of the value matters because it's a dep of another hook or a memoized child. useCallback is the same: only useful if the function is passed to a memoized child or used as a hook dep. Wrapping every handler in useCallback is cargo culting and actually costs you memory. The mental model I use is: don't memoize until you have a profiler trace showing a real problem, except at the boundary of an obviously memoized component.
+
+9
+00:03:31.000 --> 00:03:38.000
+<v Sid Chatterjee>What about state management in a real app? Redux, Zustand, react-query — how do you choose?
+
+10
+00:03:39.000 --> 00:04:24.000
+<v Test Candidate>I split state into server state and client state. Server state — anything that came from an API — goes in react-query or RTK Query because they handle caching, dedupe, background refetch, and stale-while-revalidate out of the box. For client state I default to useState colocated with the component. If two distant components need it I lift to a Context, and only reach for Zustand or Redux Toolkit when there's complex cross-cutting state with derived selectors. Redux is overkill for most apps in 2026, but it's still defensible if you need devtools time travel for a complex domain like a trading book or a CAD tool.
+
+11
+00:04:25.000 --> 00:04:32.000
+<v Sid Chatterjee>Let's go deeper on hooks. Explain useRef and the difference between useRef and a regular variable in a component.
+
+12
+00:04:33.000 --> 00:05:08.000
+<v Test Candidate>A regular variable gets re-initialized on every render. useRef gives you a mutable container that persists across renders without triggering a re-render when you change it. Two common uses: holding a DOM node so you can imperatively focus an input, and stashing a mutable value like a setTimeout id or a previous-value snapshot for comparison. The key thing is mutating ref.current does NOT cause a re-render — if you want a re-render when something changes, that's state, not a ref.
+
+13
+00:05:09.000 --> 00:05:15.000
+<v Sid Chatterjee>Have you used Context with useReducer for state? When would you reach for that over plain useState?
+
+14
+00:05:16.000 --> 00:05:54.000
+<v Test Candidate>Yes. The pattern shines when you have a state object with several related fields and the transitions are non-trivial — like a form with multi-step validation, or a wizard. The reducer documents the legal transitions in one place. I'll wrap it in a context with a stable value so consumers don't re-render unnecessarily, and I'll often split the dispatch into its own provider so components that only dispatch don't subscribe to state.
+
+15
+00:05:55.000 --> 00:06:02.000
+<v Sid Chatterjee>What about error boundaries? Where do you place them and what do they catch versus not catch?
+
+16
+00:06:03.000 --> 00:06:39.000
+<v Test Candidate>Error boundaries catch errors in the render phase, lifecycle methods, and constructors of children below them. They do not catch errors in event handlers, async code, or server-side rendering — for those you wrap with try/catch or use the onError callback. Placement-wise I put one at the route level so a crashed page doesn't take down the whole app, and a finer-grained one around risky widgets like a third-party charting library. The fallback should be useful — a retry button and a reset key, not just "Something went wrong."
+
+17
+00:06:40.000 --> 00:06:46.000
+<v Sid Chatterjee>How do you handle forms in React? Controlled vs uncontrolled, validation libraries?
+
+18
+00:06:47.000 --> 00:07:30.000
+<v Test Candidate>For anything non-trivial I use react-hook-form because it's uncontrolled by default which keeps re-renders to a minimum, and the resolver pattern plays well with zod schemas — I get one source of truth for the type and the runtime validation. For tiny one-or-two-field forms I'll just use controlled useState. Native HTML5 validation gets you a long way for required and type=email; I lean on it before reaching for a library. For accessibility I make sure each input has a real label, aria-invalid on error, and a live region for the error message.
+
+19
+00:07:31.000 --> 00:07:37.000
+<v Sid Chatterjee>Walk me through testing. RTL, Jest, what's your philosophy?
+
+20
+00:07:38.000 --> 00:08:22.000
+<v Test Candidate>I follow the testing trophy from Kent C. Dodds — heavy on integration, light on unit, and a small e2e layer with Playwright for critical paths like checkout or login. RTL queries by role and accessible name, which doubles as an accessibility check. I avoid testing implementation details like the names of useState setters or specific class names. For mocks I use MSW at the network boundary instead of mocking fetch directly, because that lets the same handlers run in tests and in Storybook. Coverage targets are a smell to me — I focus on whether the critical user flows are covered.
+
+21
+00:08:23.000 --> 00:08:30.000
+<v Sid Chatterjee>Tell me about TypeScript with React. Have you written generic components or used advanced types?
+
+22
+00:08:31.000 --> 00:09:18.000
+<v Test Candidate>Yes. The polymorphic Button I mentioned is a good example — it takes an "as" prop that lets you render as a button, a link, or any element, and the rest of the props are typed against that element. That involves a ComponentPropsWithoutRef plus a generic with a default of "button". I use conditional types for things like making a prop required only when another prop is set — a discriminated union is usually cleaner though. tsconfig-wise I always turn on strict, noUncheckedIndexedAccess, and exactOptionalPropertyTypes. Those three catch the most real bugs.
+
+23
+00:09:19.000 --> 00:09:26.000
+<v Sid Chatterjee>Let's talk performance budgets. What metrics do you watch and how do you fix regressions?
+
+24
+00:09:27.000 --> 00:10:14.000
+<v Test Candidate>I anchor on the Core Web Vitals — LCP, CLS, INP since it replaced FID. For a React app, LCP is usually about how fast the hero element renders and whether it's blocked by JS hydration. I'll check the waterfall in Lighthouse or WebPageTest, look for render-blocking scripts, preload the LCP image, and split routes with React.lazy plus Suspense. CLS is usually missing dimensions on images or late-loading fonts — I fix that with width/height attributes and font-display swap with a sensible fallback metric override. INP is event handler latency — yieldy work with scheduler.yield, debounce expensive handlers, and move heavy compute to a worker if needed.
+
+25
+00:10:15.000 --> 00:10:22.000
+<v Sid Chatterjee>Accessibility — what's your real-world approach beyond axe and Lighthouse?
+
+26
+00:10:23.000 --> 00:11:10.000
+<v Test Candidate>Automated tools catch maybe 30% of issues. Real wins come from keyboard testing — tab through the whole flow, make sure focus is visible and lands where you'd expect, that modal traps focus and returns it on close. Screen reader testing with VoiceOver or NVDA at least once per major flow. Color contrast against actual content, not just buttons. ARIA only when there isn't a native element — a button is always better than a div with role=button. I also try to ship a "reduced motion" code path because the prefers-reduced-motion media query is easy to honor and a real accessibility win.
+
+27
+00:11:11.000 --> 00:11:18.000
+<v Sid Chatterjee>Security on the frontend — what's on your radar?
+
+28
+00:11:19.000 --> 00:12:02.000
+<v Test Candidate>XSS first — never dangerouslySetInnerHTML on user content without sanitizing through DOMPurify; React's default escaping handles most cases. CSP headers set tight, with nonces if you have inline scripts. CSRF — same-site cookies and tokens for state-changing requests. Don't store auth tokens in localStorage if you can avoid it; httpOnly cookies are safer against XSS exfiltration. For third-party scripts I use SRI hashes. And I never log PII to the browser console or analytics.
+
+29
+00:12:03.000 --> 00:12:10.000
+<v Sid Chatterjee>Tooling — Vite vs webpack, and what does your lint/format setup look like?
+
+30
+00:12:11.000 --> 00:12:55.000
+<v Test Candidate>Vite for new projects — dev startup is night and day, native ESM is the right primitive. Webpack still wins for very complex enterprise pipelines with custom loaders. For lint I use ESLint with typescript-eslint, the react and react-hooks plugins, and jsx-a11y. Prettier for formatting, with the eslint-config-prettier wired in so they don't fight. Husky plus lint-staged for pre-commit hooks. I also run typecheck in CI as a separate job so PR feedback is fast.
+
+31
+00:12:56.000 --> 00:13:03.000
+<v Sid Chatterjee>Let's pivot to Node briefly. Have you built REST APIs in Node? What framework?
+
+32
+00:13:04.000 --> 00:13:45.000
+<v Test Candidate>Yes. Most of my Node work has been Express historically, and recently fastify because the schema-driven validation with JSON Schema is fast and gives you OpenAPI docs essentially for free. For a clean architecture I lean on the 12-factor principles — config from env, stateless processes, logs as event streams. I've used Nest for one project but found it heavy for what was a small team. I'd reach for it again only if I were on a 15-plus engineer org that needed the discipline.
+
+33
+00:13:46.000 --> 00:13:52.000
+<v Sid Chatterjee>Have you worked with WebSockets or SSE?
+
+34
+00:13:53.000 --> 00:14:28.000
+<v Test Candidate>Both. WebSockets when the protocol needs to be truly bidirectional — a live collaboration cursor or a chat. SSE when it's server-push-only — a notifications feed, a deployment progress tracker — because it gives you reconnection and event IDs for free over plain HTTP, and it plays nicer with HTTP/2 and corporate proxies. I've used socket.io for the WebSocket layer when I needed rooms and reconnection out of the box.
+
+35
+00:14:29.000 --> 00:14:36.000
+<v Sid Chatterjee>What about GraphQL — have you used it in production?
+
+36
+00:14:37.000 --> 00:15:18.000
+<v Test Candidate>Yes, on a product catalog. We used Apollo Server on the backend with a Postgres-backed Prisma schema, and Apollo Client on the React side with the InMemoryCache. The wins were obvious for the frontend — request exactly what you need, no overfetching, typed end-to-end. The N+1 problem was the main pain point — we fixed it with dataloader to batch. Caching strategy was a per-type policy in the InMemoryCache; we used fetchPolicy 'cache-and-network' for the hot paths.
+
+37
+00:15:19.000 --> 00:15:26.000
+<v Sid Chatterjee>Last question — what's your take on Module Federation and micro-frontends?
+
+38
+00:15:27.000 --> 00:16:15.000
+<v Test Candidate>I'm skeptical by default. Most teams that adopt micro-frontends do it for organizational reasons not technical ones, and they end up duplicating runtime, fighting version skew, and slowing the boot time of the host app. Module Federation is a fine tool if you genuinely need independent deploy cadences across teams and the shared chunks are well-managed. I've shipped one production MFE with five domains using Module Federation 2, shared React singletons, and a tight contract on the design system version. It worked, but the operational complexity was real — versioning, type sharing, runtime errors when a remote was unavailable.
+
+39
+00:16:16.000 --> 00:16:22.000
+<v Sid Chatterjee>Great. Anything you want to ask me or anything we didn't cover?
+
+40
+00:16:23.000 --> 00:16:50.000
+<v Test Candidate>Two quick things — what does your release cadence look like, and how does the team handle on-call rotations for the frontend? Also curious how design and engineering collaborate at the spec stage.
+
+41
+00:16:51.000 --> 00:17:25.000
+<v Sid Chatterjee>We ship multiple times a day behind feature flags, on-call is two-week rotations shared across full-stack engineers, and we have a weekly design-engineering sync where we triage the next two sprints together. Thanks for the time — we'll be in touch this week.
+
+42
+00:17:26.000 --> 00:17:30.000
+<v Test Candidate>Thanks, appreciated the conversation.

@@ -1,0 +1,145 @@
+WEBVTT
+
+1
+00:00:02.000 --> 00:00:09.000
+<v Sid Chatterjee>Hi, thanks for joining. Can you start with a quick overview of your background and the React work you've done?
+
+2
+00:00:10.000 --> 00:00:42.000
+<v Test Candidate>Sure. I've been doing web development for about three years. I've worked on React mostly through tutorials and a couple of small side projects. At my current company I work on a Java backend team, but I help out with the frontend sometimes — mostly bug fixes and small features. I've been trying to grow into a more frontend-focused role, which is why I'm interviewing.
+
+3
+00:00:43.000 --> 00:00:49.000
+<v Sid Chatterjee>Got it. Let's start with rendering patterns. When would you use SSR versus client-side rendering?
+
+4
+00:00:50.000 --> 00:01:14.000
+<v Test Candidate>Um, SSR is when the server renders the page and CSR is when the client does it. I think SSR is better for SEO. I haven't really used SSR in a project though — the apps I worked on were all CSR with Create React App.
+
+5
+00:01:15.000 --> 00:01:21.000
+<v Sid Chatterjee>What about SSG or ISR — have you come across those?
+
+6
+00:01:22.000 --> 00:01:34.000
+<v Test Candidate>I've heard of SSG, I think it's static site generation. I'm not sure what ISR is. Is that incremental something? Sorry, I haven't worked with Next.js.
+
+7
+00:01:35.000 --> 00:01:41.000
+<v Sid Chatterjee>That's fine. How would you handle rendering a list of 10,000 rows in React efficiently?
+
+8
+00:01:42.000 --> 00:02:08.000
+<v Test Candidate>I'd probably use pagination, so we only show like 50 at a time. Or maybe infinite scroll. I haven't done virtualization but I think there are libraries for that. I'd just google "React big list" and use whatever the top result was.
+
+9
+00:02:09.000 --> 00:02:15.000
+<v Sid Chatterjee>Tell me about useMemo and useCallback. When are they worth using?
+
+10
+00:02:16.000 --> 00:02:48.000
+<v Test Candidate>I usually wrap functions in useCallback by default — I read it's good for performance. useMemo I use when I'm computing something. Honestly I'm not sure when not to use them, I just add them when ESLint tells me to. They don't hurt, right?
+
+11
+00:02:49.000 --> 00:02:55.000
+<v Sid Chatterjee>What does the dependency array do in useEffect?
+
+12
+00:02:56.000 --> 00:03:18.000
+<v Test Candidate>It's the things the effect depends on. If you leave it empty the effect runs once. If you put a variable in it, the effect runs when the variable changes. I usually just put whatever the lint rule says to put in.
+
+13
+00:03:19.000 --> 00:03:25.000
+<v Sid Chatterjee>What's the difference between useRef and useState?
+
+14
+00:03:26.000 --> 00:03:48.000
+<v Test Candidate>useState is for state and useRef is for refs to DOM elements like inputs. I've used useRef once to focus an input on mount. I don't think I've used it for anything else.
+
+15
+00:03:49.000 --> 00:03:55.000
+<v Sid Chatterjee>Can you store mutable values in a ref that aren't DOM nodes?
+
+16
+00:03:56.000 --> 00:04:08.000
+<v Test Candidate>Um, I think so? Like maybe a timer id? I'm not 100% sure how that works though, I haven't done that.
+
+17
+00:04:09.000 --> 00:04:15.000
+<v Sid Chatterjee>How do you handle forms in React? Have you used a form library?
+
+18
+00:04:16.000 --> 00:04:42.000
+<v Test Candidate>I just use useState for each input. If there's like five fields I'll do five useStates. I've heard of Formik and react-hook-form but I haven't used them. For validation I write if-statements in the submit handler.
+
+19
+00:04:43.000 --> 00:04:49.000
+<v Sid Chatterjee>What's an error boundary?
+
+20
+00:04:50.000 --> 00:05:08.000
+<v Test Candidate>It's a way to catch errors in React. I think you use it with try-catch? I haven't actually implemented one — when there's an error in our app it just crashes and the user has to refresh.
+
+21
+00:05:09.000 --> 00:05:15.000
+<v Sid Chatterjee>How do you write tests for React components?
+
+22
+00:05:16.000 --> 00:05:38.000
+<v Test Candidate>Honestly I don't write a lot of tests. The team has some tests but it's mostly the senior devs who write them. I've run them but I haven't added new ones. I think we use Jest and... maybe Enzyme? I'm not sure.
+
+23
+00:05:39.000 --> 00:05:45.000
+<v Sid Chatterjee>Do you use TypeScript? How comfortable are you with it?
+
+24
+00:05:46.000 --> 00:06:10.000
+<v Test Candidate>We use TypeScript at work but I mostly use 'any' when I'm not sure of the type. I know basic types like string and number. I've never written a generic function. The advanced stuff like conditional types I don't know.
+
+25
+00:06:11.000 --> 00:06:17.000
+<v Sid Chatterjee>How would you fix a slow React page in production?
+
+26
+00:06:18.000 --> 00:06:42.000
+<v Test Candidate>I'd open Chrome DevTools and look at the network tab. If there's a slow API call I'd ask the backend team. For the frontend itself I'm not sure — I haven't used the React profiler.
+
+27
+00:06:43.000 --> 00:06:49.000
+<v Sid Chatterjee>What about accessibility? How do you make sure a component is accessible?
+
+28
+00:06:50.000 --> 00:07:08.000
+<v Test Candidate>I try to use semantic HTML when I can. I know about alt tags on images. I've never used a screen reader. I think there's a Lighthouse score for accessibility, that's about all I know.
+
+29
+00:07:09.000 --> 00:07:15.000
+<v Sid Chatterjee>State management in a large app — Redux, Zustand, react-query — what's your approach?
+
+30
+00:07:16.000 --> 00:07:42.000
+<v Test Candidate>We use Redux at work but I find it really complex. I usually just put state in the parent component and pass it down. I've heard of react-query but I haven't tried it. I don't really know when to use Redux versus useState versus context.
+
+31
+00:07:43.000 --> 00:07:49.000
+<v Sid Chatterjee>What about CSS? Tell me about your approach to styling.
+
+32
+00:07:50.000 --> 00:08:14.000
+<v Test Candidate>I mostly use plain CSS with class names. I've used Tailwind on one project, I liked it. I don't really do responsive design from scratch, I use the breakpoints the designer gives me. I've heard of CSS-in-JS but haven't used it.
+
+33
+00:08:15.000 --> 00:08:21.000
+<v Sid Chatterjee>OK. Let's wrap up. Any questions for me?
+
+34
+00:08:22.000 --> 00:08:32.000
+<v Test Candidate>What does the day-to-day look like? And is there mentorship for someone like me who's growing into the role?
+
+35
+00:08:33.000 --> 00:08:52.000
+<v Sid Chatterjee>It's a fast-moving team that ships daily. We do pair on tricky changes. Thanks for the time today — we'll be in touch.
+
+36
+00:08:53.000 --> 00:08:56.000
+<v Test Candidate>Thanks, have a good day.

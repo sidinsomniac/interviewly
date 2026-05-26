@@ -1,0 +1,56 @@
+[
+  {
+    "id": "msg-001",
+    "createdDateTime": "2026-05-27T14:00:05.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>👋 Hello and welcome! I'm Medha, your AI interviewer. By continuing, you consent to AI-assisted analysis and recording. Data retention: 30 days.</p>"
+    }
+  },
+  {
+    "id": "msg-002",
+    "createdDateTime": "2026-05-27T14:00:40.000Z",
+    "from": { "user": { "displayName": "Test Candidate" } },
+    "messageType": "message",
+    "body": { "contentType": "text", "content": "OK." }
+  },
+  {
+    "id": "msg-003",
+    "createdDateTime": "2026-05-27T14:01:20.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 1.</b> Walk us through rendering patterns in React — SSR vs CSR vs SSG vs ISR.</p>"
+    }
+  },
+  {
+    "id": "msg-004",
+    "createdDateTime": "2026-05-27T14:03:50.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 2.</b> How would you handle a list of 10,000 rows efficiently in React?</p>"
+    }
+  },
+  {
+    "id": "msg-005",
+    "createdDateTime": "2026-05-27T14:05:30.000Z",
+    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p><b>Question 3.</b> TypeScript with React — what's your comfort level with generics and advanced types?</p>"
+    }
+  },
+  {
+    "id": "msg-006",
+    "createdDateTime": "2026-05-27T14:07:00.000Z",
+    "from": { "user": { "displayName": "Test Candidate" } },
+    "messageType": "message",
+    "body": { "contentType": "text", "content": "I mostly use any when I'm not sure of the type — I haven't done generics yet." }
+  }
+]

@@ -1,10 +1,42 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { format } from "date-fns";
-import { getChatModel } from "@/lib/llm";
+import { getChatModel, structuredOutputMethod } from "@/lib/llm";
 import { ROWS_BY_ROUND } from "@/lib/probeform/rows";
 import { FilledProbeFormSchema } from "@/types/index";
 import type { InterviewRound, TranscriptSegment, QuestionPlan, FilledProbeForm } from "@/types/index";
 import { log } from "@/lib/logger";
+
+// JSON shape skeleton for jsonMode providers (DeepSeek). When the API
+// can't enforce a Zod-derived JSON schema strictly, the prompt has to
+// carry the shape itself.
+const FILLED_FORM_SHAPE = `{
+  "round": "Core" | "React",
+  "header": {
+    "candidateName": "<string>",
+    "totalYears": <number>,
+    "relevantYears": <number>,
+    "interviewedFor": "<string>",
+    "evaluationDate": "<MM/DD/YYYY>",
+    "interviewerName": "<string>",
+    "interviewerOid": "<string>",
+    "interviewOutcome": "Selected" | "Rejected" | "Needs Another Round",
+    "selectedForLevel": "<one of Experience Engineer L1/L2/Senior Experience Engineer/Lead Experience Engineer/Manager Experience Engineering/REJECTED/Thinking>",
+    "rejectionReason": "<string, optional>",
+    "sectionsToBeTrainedOn": "<string, optional>",
+    "domainFeedbackSummary": "<4-8 sentence narrative paragraph>",
+    "teachableSkillGapDetails": "<string, optional>",
+    "handsOnExerciseId": "<string, optional>"
+  },
+  "competencies": [
+    {
+      "rowIndex": <integer matching one of the rows above>,
+      "rubricType": "architecture" | "development",
+      "proficiency": "<EXACT string from the rubric vocab above — including trailing spaces and the typo 'theoritically'>",
+      "feedbackDetails": "<1-3 sentence feedback, or '-' if 'Did not probe'>",
+      "evidenceQuotes": ["<optional verbatim candidate quote>", "..."]
+    }
+  ]
+}`;
 
 function transcriptToText(segments: TranscriptSegment[]): string {
   return segments
@@ -74,7 +106,11 @@ After scoring all rows:
 
 Be fair, evidence-anchored, and rigorous. Use the full range of the proficiency scale. Do NOT over-rate weak candidates to be nice.
 
-Output ONLY a structured JSON conforming to the FilledProbeFormSchema.`;
+Output ONLY a single JSON object — no prose, no markdown fences — with this exact shape:
+
+${FILLED_FORM_SHAPE}
+
+The "round" field MUST be exactly the string "${round}". Every "rowIndex" MUST match one of the rowIndex values from the rows list above. Every "proficiency" MUST be one of the EXACT strings from the architecture or development rubric vocab above (match character-for-character including trailing spaces and the 'theoritically' typo).`;
 
   const humanPrompt = `Candidate: ${candidateName}
 Role applied for: ${roleAppliedFor}
@@ -90,23 +126,30 @@ ${transcriptText}
 Now fill out the probe form.`;
 
   const model = getChatModel(0.2);
+  const method = structuredOutputMethod();
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       let result: unknown;
       try {
-        const structured = model.withStructuredOutput(FilledProbeFormSchema);
+        const structured = method
+          ? model.withStructuredOutput(FilledProbeFormSchema, { method })
+          : model.withStructuredOutput(FilledProbeFormSchema);
         result = await structured.invoke([
           new SystemMessage(systemPrompt),
           new HumanMessage(humanPrompt),
         ]);
+        // jsonMode does NOT enforce shape at the API layer — validate
+        // ourselves so a malformed shape triggers the fallback.
+        result = FilledProbeFormSchema.parse(result);
       } catch {
         const raw = await model.invoke([
-          new SystemMessage(systemPrompt + "\n\nReturn only valid JSON matching the FilledProbeFormSchema."),
+          new SystemMessage(systemPrompt + "\n\nReturn only valid JSON matching the shape above. No prose, no markdown fences."),
           new HumanMessage(humanPrompt),
         ]);
         const text = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("Model returned no parseable JSON for probe form");
         result = FilledProbeFormSchema.parse(JSON.parse(jsonMatch[0]));
       }

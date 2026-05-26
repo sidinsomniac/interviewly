@@ -10,6 +10,7 @@ import { fetchChatMessages } from "@/lib/graph/chatHistory";
 import { mergeTranscriptSources } from "@/lib/transcript-merge";
 import { mapTranscriptToProbeForm } from "@/lib/llm/transcript-mapping";
 import { loadTemplate, fillRound, addMetaSheet, toBuffer } from "@/lib/probeform/filler";
+import { loadFixtureBundle } from "@/lib/fixtures";
 import type { TranscriptSegment } from "@/types/index";
 
 function sleep(ms: number) {
@@ -23,9 +24,27 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
   try {
     let vttSegments: TranscriptSegment[] = injectedVttSegments ?? [];
     let vttRaw = "";
+    let chatSegments: TranscriptSegment[] = [];
+    let fixtureMeta: { role: string; outcome: string } | null = null;
 
-    if (!injectedVttSegments) {
-      // Poll for transcript with exponential backoff
+    // ── TEST_MODE branch ─────────────────────────────────────
+    // Skip all Graph polling and use fixtures from data/fixtures/.
+    // Lets the full pipeline run in <30 sec without a real meeting.
+    if (config.app.testMode && !injectedVttSegments) {
+      const bundle = await loadFixtureBundle({
+        role: interview.round?.toLowerCase(),
+        outcome: config.app.fixtureOutcome,
+      });
+      vttRaw = bundle.vttRaw;
+      vttSegments = bundle.vttSegments;
+      chatSegments = bundle.chatSegments;
+      fixtureMeta = bundle.meta;
+      log.warn(
+        { interviewId: id, ...fixtureMeta },
+        "TEST_MODE active — using fixture transcript + chat history instead of Graph"
+      );
+    } else if (!injectedVttSegments) {
+      // ── Real Graph path ──────────────────────────────────
       const organizerGuid = interview.organizerGuid
         ?? await resolveOrganizerGuid(config.ms.organizerEmail);
       const delays = [5, 10, 20, 40, 80, 120];
@@ -47,9 +66,17 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
       log.info({ interviewId: id, segmentCount: vttSegments.length }, "VTT parsed");
     }
 
-    const chatSegments = await fetchChatMessages(interview.chatId!);
+    // Chat history: fixtures already populated `chatSegments` above; in
+    // every other path (real meeting, or injected VTT via manual upload)
+    // we still want the live chat from Graph.
+    if (!config.app.testMode || injectedVttSegments) {
+      chatSegments = await fetchChatMessages(interview.chatId!);
+    }
     const transcript = mergeTranscriptSources(vttSegments, chatSegments);
-    log.info({ interviewId: id, totalSegments: transcript.length }, "Transcript merged");
+    log.info(
+      { interviewId: id, totalSegments: transcript.length, testMode: !!fixtureMeta },
+      "Transcript merged"
+    );
 
     const filledForm = await mapTranscriptToProbeForm({
       round: interview.round,
@@ -74,10 +101,14 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
       modelProvider: config.llm.provider,
       modelId: config.llm.modelId,
       generatedAt: new Date().toISOString(),
-      meetingId: interview.meetingId ?? "unknown",
+      meetingId: fixtureMeta
+        ? `TEST_MODE:${fixtureMeta.role}-${fixtureMeta.outcome}`
+        : (interview.meetingId ?? "unknown"),
       transcriptSha256,
       recruiterEmail: config.ms.organizerEmail,
       botUserEmail: config.ms.botUserEmail,
+      testMode: !!fixtureMeta,
+      fixtureId: fixtureMeta ? `${fixtureMeta.role}/${fixtureMeta.outcome}` : undefined,
     });
 
     const buffer = await toBuffer(wb);

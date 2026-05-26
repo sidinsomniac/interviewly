@@ -5,7 +5,7 @@ import { HEADER_CELLS, ROUND_SHEET_NAMES, CELL_MAP_BY_ROUND } from "@/lib/probef
 
 export async function loadTemplate(): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
-  const templatePath = path.resolve(process.cwd(), "data/samples/Gurnoor_Probe_Form_sample.xlsx");
+  const templatePath = path.resolve(process.cwd(), "data/samples/Probe_Form_sample.xlsx");
   await wb.xlsx.readFile(templatePath);
   return wb;
 }
@@ -63,6 +63,8 @@ export function addMetaSheet(wb: ExcelJS.Workbook, meta: ProbeFormMeta): void {
     ["transcript_sha256",meta.transcriptSha256],
     ["recruiter_email",  meta.recruiterEmail],
     ["bot_user_email",   meta.botUserEmail],
+    ["test_mode",        meta.testMode ? "true" : "false"],
+    ["fixture_id",       meta.fixtureId ?? ""],
   ];
 
   for (const [key, value] of rows) {

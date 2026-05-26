@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { store } from "@/lib/store";
+import { config } from "@/lib/config";
+import { log } from "@/lib/logger";
 import { findMeetingChatByTopic, resolveOnlineMeetingId } from "@/lib/graph/meeting";
 import { generateQuestionPlan } from "@/lib/llm/question-plan";
 import { CreateInterviewRequestSchema } from "@/types/index";
@@ -17,11 +19,27 @@ export async function POST(req: NextRequest) {
       roleAppliedFor, round, jdText, chosenExerciseId, meetingTopic,
     } = parsed.data;
 
-    const { chatId, organizerGuid, joinWebUrl } = await findMeetingChatByTopic(meetingTopic);
+    // In TEST_MODE we skip the Graph meeting lookup entirely so the user
+    // can exercise the end-to-end pipeline without first scheduling a
+    // real Teams meeting. Fake-but-stable ids let the rest of the
+    // pipeline (store, dashboards) function normally.
+    let chatId: string | undefined;
+    let organizerGuid: string | undefined;
+    let meetingId: string | undefined;
 
-    const meetingId = (organizerGuid && joinWebUrl)
-      ? await resolveOnlineMeetingId(organizerGuid, joinWebUrl)
-      : undefined;
+    if (config.app.testMode) {
+      chatId = `test-mode-chat-${Date.now()}`;
+      organizerGuid = "test-mode-organizer";
+      meetingId = `test-mode-meeting-${Date.now()}`;
+      log.warn({ meetingTopic }, "TEST_MODE: skipping Graph meeting lookup; using stub ids");
+    } else {
+      const lookup = await findMeetingChatByTopic(meetingTopic);
+      chatId = lookup.chatId;
+      organizerGuid = lookup.organizerGuid;
+      meetingId = (organizerGuid && lookup.joinWebUrl)
+        ? await resolveOnlineMeetingId(organizerGuid, lookup.joinWebUrl)
+        : undefined;
+    }
 
     const questionPlan = await generateQuestionPlan({
       round, roleAppliedFor, candidateTotalYears, candidateRelevantYears, jdText,
