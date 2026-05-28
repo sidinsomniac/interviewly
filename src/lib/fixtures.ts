@@ -78,14 +78,8 @@ function chatMessagesToSegments(messages: RawChatMessage[]): TranscriptSegment[]
   return segments;
 }
 
-function roundToFixtureRole(round: string | undefined): string {
-  if (!round) return config.app.fixtureRole;
-  const r = round.toLowerCase();
-  // Map known InterviewRound values; anything else is taken verbatim.
-  if (r === "core") return "core";
-  if (r === "react") return "react";
-  return r;
-}
+// Sub-Phase C: `roundToFixtureRole` was removed. The roleId now drives
+// the fixture filename directly (e.g., roleId="react" → "transcript-react-*").
 
 async function readIfExists(filePath: string): Promise<string | null> {
   try {

@@ -1,0 +1,209 @@
+WEBVTT
+
+1
+00:00:02.000 --> 00:00:14.000
+<v Sid Chatterjee>Alright, let's start. Can you walk me through your experience with Spring Boot auto-configuration? How have you customized or overridden auto-configuration in your projects?</v>
+
+2
+00:00:15.000 --> 00:01:00.000
+<v Test Candidate>Sure. I've worked extensively with Spring Boot auto-configuration. In a recent microservices project, we needed to customize the default ObjectMapper for JSON serialization. Instead of using @Bean, I created a custom Jackson2ObjectMapperBuilder and used @ConditionalOnMissingBean to ensure our configuration took precedence. We also used @ConditionalOnProperty to enable features like custom metrics only when a specific property was set. For overriding, I've used auto-configuration ordering with @AutoConfigureOrder and excluded certain auto-configurations via spring.autoconfigure.exclude in application.yml when they conflicted with our custom implementations.</v>
+
+3
+00:01:01.000 --> 00:01:11.000
+<v Sid Chatterjee>Good. How about embedded containers? Have you had to switch between Tomcat, Undertow, or Netty? What drove that decision?</v>
+
+4
+00:01:12.000 --> 00:01:47.000
+<v Test Candidate>Yes, in a high-throughput system we switched from Tomcat to Undertow because Undertow handles non-blocking I/O better and has lower memory footprint. We were seeing thread pool exhaustion under load with Tomcat. Undertow's event-driven model reduced context switching. We simply excluded spring-boot-starter-tomcat and added spring-boot-starter-undertow. The migration was seamless. For reactive endpoints, we've used Netty with Spring WebFlux, but that was for a specific streaming use case.</v>
+
+5
+00:01:48.000 --> 00:01:56.000
+<v Sid Chatterjee>Let's talk about data access. How do you detect and fix N+1 query problems in JPA?</v>
+
+6
+00:01:57.000 --> 00:02:37.000
+<v Test Candidate>I usually enable SQL logging in development and use tools like Hibernate's statistics or JPA Buddy. For detection, I look for repeated identical SQL statements. For fixing, I use @EntityGraph to define fetch plans. For example, on a findById method I add @EntityGraph(attributePaths = {"orders"}) to eagerly fetch the association in one query. I also use @BatchSize for collections to batch fetch in chunks. I avoid EAGER fetching globally because it can cause performance issues. I've also used Hibernate's query hints with JOIN FETCH in JPQL.</v>
+
+7
+00:02:38.000 --> 00:02:44.000
+<v Sid Chatterjee>What about caching? Have you used Hibernate's second-level cache?</v>
+
+8
+00:02:45.000 --> 00:03:15.000
+<v Test Candidate>Yes, in a read-heavy application we used Ehcache as the second-level cache. We configured it for entities that rarely change, like reference data. We used @Cacheable and @Cache annotations. But we were careful with cache invalidation; we used a time-based expiry. I've also used Redis for distributed caching, but that was outside Hibernate. For first-level cache, it's automatic per session, but we had to be mindful of long-running sessions causing memory issues.</v>
+
+9
+00:03:16.000 --> 00:03:24.000
+<v Sid Chatterjee>How do you handle transaction propagation? Give me an example where REQUIRES_NEW was necessary.</v>
+
+10
+00:03:25.000 --> 00:03:55.000
+<v Test Candidate>We had a service that processes orders and logs audit entries. The audit log should be saved even if the order processing fails. So we used @Transactional(propagation = Propagation.REQUIRES_NEW) on the audit method. That way, the audit transaction commits independently. However, we had to be careful with nested transactions and potential deadlocks. We also used TransactionTemplate for programmatic transaction management in some cases where declarative wasn't flexible enough.</v>
+
+11
+00:03:56.000 --> 00:04:02.000
+<v Sid Chatterjee>What about isolation levels? When would you use REPEATABLE_READ over READ_COMMITTED?</v>
+
+12
+00:04:03.000 --> 00:04:33.000
+<v Test Candidate>READ_COMMITTED is the default and works for most cases. But in a financial system where we needed to ensure that a read of a balance is consistent within a transaction, we used REPEATABLE_READ to prevent non-repeatable reads. However, it can lead to more deadlocks. We also used optimistic locking with @Version to handle concurrent updates without escalating isolation. For high contention, we used pessimistic locking with PESSIMISTIC_WRITE lock mode.</v>
+
+13
+00:04:34.000 --> 00:04:42.000
+<v Sid Chatterjee>Let's switch to concurrency. How do you choose between synchronized, ReentrantLock, and StampedLock?</v>
+
+14
+00:04:43.000 --> 00:05:18.000
+<v Test Candidate>synchronized is simple for low-contention scenarios. ReentrantLock gives more flexibility like tryLock, fair ordering, and multiple condition variables. I used ReentrantLock in a cache implementation where I needed to lock per key. StampedLock is great for read-heavy workloads because it allows optimistic reads that don't block writers. In a configuration store with many reads and rare writes, StampedLock improved throughput significantly. But StampedLock is not reentrant, so you have to be careful.</v>
+
+15
+00:05:19.000 --> 00:05:24.000
+<v Sid Chatterjee>How about ConcurrentHashMap? Have you used computeIfAbsent?</v>
+
+16
+00:05:25.000 --> 00:06:00.000
+<v Test Candidate>Yes, computeIfAbsent is atomic and efficient. I've used it to implement a simple caching layer where the value creation is expensive. For example, loading user permissions from a database: ConcurrentHashMap<String, Permissions> cache; cache.computeIfAbsent(userId, this::loadPermissions). It ensures only one thread computes the value. I also know that in Java 8, the internal segmentation was improved; it uses a tree-based bin for collisions. I've also used LongAdder for high-contention counters because it's more scalable than AtomicLong.</v>
+
+17
+00:06:01.000 --> 00:06:07.000
+<v Sid Chatterjee>Let's talk about REST APIs. What's your experience with HATEOAS?</v>
+
+18
+00:06:08.000 --> 00:06:43.000
+<v Test Candidate>I've implemented HATEOAS in a few APIs to make them self-documenting. We used Spring HATEOAS to add links to resources. For example, an order resource includes links to cancel, update, or view items. It helps with discoverability and decouples clients from URL structures. However, I've found that many clients don't leverage it, so it adds overhead. I think it's useful for public APIs but not always necessary for internal microservices. I've also worked with Richardson Maturity Model; we aimed for Level 3 in some services.</v>
+
+19
+00:06:44.000 --> 00:06:51.000
+<v Sid Chatterjee>How do you handle security? Specifically, JWT token validation in Spring Security.</v>
+
+20
+00:06:52.000 --> 00:07:27.000
+<v Test Candidate>We use OAuth2 with JWT. We configure a ResourceServer with a JwtDecoder that validates the token's signature using a public key from the authorization server. We also validate claims like issuer, audience, and expiration. For method security, we use @PreAuthorize with SpEL expressions like hasAuthority('ROLE_ADMIN'). We also have custom PermissionEvaluators for fine-grained access control. One challenge was token revocation; we implemented a blacklist using Redis for stateless tokens.</v>
+
+21
+00:07:28.000 --> 00:07:34.000
+<v Sid Chatterjee>Observability: how do you use Micrometer for custom metrics?</v>
+
+22
+00:07:35.000 --> 00:08:05.000
+<v Test Candidate>I've used Micrometer to expose custom metrics via Spring Boot Actuator. For example, we tracked the number of failed login attempts with a Counter. We used @Timed on controller methods to measure latency. We also created custom gauges for queue sizes. We exported metrics to Prometheus and set up alerts in Grafana. We used MeterRegistry to create custom meters. One thing we had to be careful about was high cardinality tags; we avoided unbounded tag values.</v>
+
+23
+00:08:06.000 --> 00:08:11.000
+<v Sid Chatterjee>Docker: how do you optimize Docker images for Spring Boot apps?</v>
+
+24
+00:08:12.000 --> 00:08:42.000
+<v Test Candidate>We use multi-stage builds. The first stage builds the fat JAR using Maven, the second stage uses a slim JRE base image. We also leverage Docker layer caching by separating dependencies. We use spring-boot-jarmode-layertools to extract layers: first the dependencies, then the application code. That way, only the application layer changes on code updates. We also use .dockerignore to exclude unnecessary files. For base images, we prefer Eclipse Temurin or AdoptOpenJDK.</v>
+
+25
+00:08:43.000 --> 00:08:49.000
+<v Sid Chatterjee>Have you used Project Reactor? When would you choose Mono vs Flux?</v>
+
+26
+00:08:50.000 --> 00:09:25.000
+<v Test Candidate>Yes, I've used Reactor in a reactive microservice. Mono is for 0 or 1 element, like a single DB query result. Flux is for multiple elements, like a stream of data. We used Flux with backpressure when consuming from a Kafka topic to control the rate. We also used operators like flatMap, concatMap, and transform. One challenge was debugging reactive streams; we used Hooks.onOperatorDebug and Reactor's checkpoint. I'm comfortable with reactive programming, but I've also seen cases where it adds unnecessary complexity.</v>
+
+27
+00:09:26.000 --> 00:09:34.000
+<v Sid Chatterjee>Let's talk about Spring Data JPA: derived query methods vs @Query. When do you prefer one over the other?</v>
+
+28
+00:09:35.000 --> 00:10:10.000
+<v Test Candidate>Derived query methods are great for simple queries; they're concise and automatically implemented. But for complex queries with joins, aggregations, or dynamic conditions, I use @Query with JPQL or native SQL. I also use @Query for performance tuning with hints. In one case, a derived method generated inefficient SQL, so I replaced it with a custom @Query. For dynamic queries, I've used JPA Specifications or QueryDSL. I prefer QueryDSL because it's type-safe and more readable than string-based Specifications.</v>
+
+29
+00:10:11.000 --> 00:10:17.000
+<v Sid Chatterjee>Inheritance strategies in Hibernate: when would you use JOINED vs TABLE_PER_CLASS?</v>
+
+30
+00:10:18.000 --> 00:10:48.000
+<v Test Candidate>JOINED strategy normalizes the data, which is good for data integrity and querying across subclasses. But it can have performance issues with deep hierarchies due to multiple joins. TABLE_PER_CLASS avoids joins but duplicates columns and doesn't support polymorphic queries efficiently. I've used JOINED for a payment hierarchy where we needed to query all payments. For a simple hierarchy with few subclasses, I've used SINGLE_TABLE with a discriminator column, which is the fastest. I avoid TABLE_PER_CLASS unless necessary.</v>
+
+31
+00:10:49.000 --> 00:10:55.000
+<v Sid Chatterjee>How do you handle optimistic vs pessimistic locking in JPA?</v>
+
+32
+00:10:56.000 --> 00:11:26.000
+<v Test Candidate>Optimistic locking uses @Version and is suitable for low contention. We use it for most entities. When a conflict occurs, we catch OptimisticLockException and retry. Pessimistic locking is used when conflicts are expected, like reserving a seat. We use LockModeType.PESSIMISTIC_WRITE to lock the row. However, it can lead to deadlocks, so we keep transactions short. We also set a timeout using @QueryHints. In one project, we used optimistic locking with a retry mechanism using Spring Retry.</v>
+
+33
+00:11:27.000 --> 00:11:33.000
+<v Sid Chatterjee>Let's go back to Spring Boot configuration. How do you use @ConfigurationProperties vs @Value?</v>
+
+34
+00:11:34.000 --> 00:12:04.000
+<v Test Candidate>I prefer @ConfigurationProperties for grouping related properties. It's type-safe and supports validation with JSR-303. For example, a MailProperties class with host, port, etc. @Value is good for simple one-off properties, but it's not type-safe and can become messy. I also use relaxed binding with @ConfigurationProperties. For profile-specific configuration, I use YAML multi-document files or separate application-{profile}.yml files. I've used spring.factories to register custom auto-configurations.</v>
+
+35
+00:12:05.000 --> 00:12:10.000
+<v Sid Chatterjee>Have you used Spring Boot Actuator health indicators? Custom ones?</v>
+
+36
+00:12:11.000 --> 00:12:41.000
+<v Test Candidate>Yes, we've used built-in health indicators like DiskSpaceHealthIndicator, and created custom ones for external services. For example, a health indicator that checks if a downstream API is reachable. We implement HealthIndicator interface and return up/down status. We also expose details via /actuator/health. We used custom health indicators in Kubernetes liveness and readiness probes. One thing: we had to be careful not to cascade failures by marking the service down if a non-critical dependency is down.</v>
+
+37
+00:12:42.000 --> 00:12:47.000
+<v Sid Chatterjee>What about batch fetching in Hibernate? How do you configure @BatchSize?</v>
+
+38
+00:12:48.000 --> 00:13:18.000
+<v Test Candidate>I've used @BatchSize on collections to reduce N+1. For example, on a Department entity with a list of Employees, I set @BatchSize(size = 10). This tells Hibernate to load employees for multiple departments in one SQL query using IN clause. I've also set hibernate.default_batch_fetch_size globally. It's a simple way to improve performance without changing fetch strategies. However, it's not a silver bullet; for critical queries, I prefer @EntityGraph or JOIN FETCH.</v>
+
+39
+00:13:19.000 --> 00:13:25.000
+<v Sid Chatterjee>Let's discuss ExecutorService tuning. How do you size a thread pool?</v>
+
+40
+00:13:26.000 --> 00:13:56.000
+<v Test Candidate>It depends on the task type. For CPU-bound tasks, pool size should be close to the number of cores. For I/O-bound tasks, we use a larger pool. I've used the formula: threads = cores * (1 + wait time / service time). We also monitor queue sizes and rejection rates. We use ThreadPoolExecutor with a bounded queue and a rejection policy like CallerRunsPolicy to avoid silent task loss. In one project, we used a custom ThreadFactory to name threads for debugging.</v>
+
+41
+00:13:57.000 --> 00:14:02.000
+<v Sid Chatterjee>What about volatile vs AtomicInteger vs LongAdder?</v>
+
+42
+00:14:03.000 --> 00:14:33.000
+<v Test Candidate>volatile ensures visibility but not atomicity. Use it for flags. AtomicInteger provides atomic operations like incrementAndGet, but under high contention it can suffer from CAS failures. LongAdder is more scalable for high-contention writes because it uses a set of cells and sums them on read. I used LongAdder for a request counter in a high-throughput system. For reads, AtomicLong is fine. I also use AtomicReference for object references.</v>
+
+43
+00:14:34.000 --> 00:14:40.000
+<v Sid Chatterjee>Have you used Spring Security's method security with @PreAuthorize? Any complex expressions?</v>
+
+44
+00:14:41.000 --> 00:15:06.000
+<v Test Candidate>Yes, we use @PreAuthorize extensively. For example, @PreAuthorize("hasRole('ADMIN') or #order.owner == authentication.name") to allow only the owner or admin. We also use custom method security with @PostAuthorize for return object checks. We've integrated with a custom PermissionEvaluator to check permissions like 'read', 'write'. One challenge was testing; we used @WithMockUser and security test utilities.</v>
+
+45
+00:15:07.000 --> 00:15:11.000
+<v Sid Chatterjee>What's your experience with QueryDSL?</v>
+
+46
+00:15:12.000 --> 00:15:37.000
+<v Test Candidate>I've used QueryDSL with Spring Data JPA. It's great for dynamic queries. We generated Q classes using Maven plugin. For example, building a predicate with BooleanBuilder. It's type-safe and avoids string concatenation. I've also used it with MongoDB. However, I haven't used it extensively with complex joins; for those, I fall back to @Query. I'd say I'm comfortable but not an expert.</v>
+
+47
+00:15:38.000 --> 00:15:46.000
+<v Sid Chatterjee>Let's talk about Docker multi-stage builds. Can you walk me through a typical Dockerfile for a Spring Boot app?</v>
+
+48
+00:15:47.000 --> 00:16:27.000
+<v Test Candidate>Sure. First stage uses Maven image to build the app: FROM maven:3.8.4-eclipse-temurin-11 AS build. COPY pom.xml and run mvn dependency:go-offline to cache dependencies. Then copy source and run mvn package. Second stage: FROM eclipse-temurin:11-jre. COPY --from=build target/app.jar. We also use spring-boot-jarmode-layertools to extract layers: java -Djarmode=layertools -jar app.jar extract, then copy each layer separately to leverage Docker layer caching. Finally, ENTRYPOINT ["java", "-jar", "app.jar"].</v>
+
+49
+00:16:28.000 --> 00:16:33.000
+<v Sid Chatterjee>How do you handle backpressure in Project Reactor?</v>
+
+50
+00:16:34.000 --> 00:17:04.000
+<v Test Candidate>Backpressure is inherent in Reactor. We use operators like onBackpressureBuffer, onBackpressureDrop, or onBackpressureLatest to handle overflow. In a Kafka consumer, we used Flux.create with a custom subscriber that requests a certain number of elements. We also used limitRate to throttle. For slow consumers, we used onBackpressureBuffer with a bounded queue and a drop strategy. I've also used Schedulers.parallel() for CPU-bound tasks and Schedulers.boundedElastic() for blocking I/O.</v>
+
+51
+00:17:05.000 --> 00:17:11.000
+<v Sid Chatterjee>One last thing: what's a project you're proud of and what was your role?</v>
+
+52
+00:17:12.000 --> 00:17:42.000
+<v Test Candidate>I led the migration of a monolithic e-commerce platform to microservices. We used Spring Boot, Spring Cloud, and Kafka. I designed the service boundaries, implemented the order service with CQRS, and set up CI/CD pipelines. We reduced deployment time from hours to minutes and improved scalability. I also introduced chaos engineering practices. It was challenging but rewarding.</v>

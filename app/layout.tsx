@@ -7,7 +7,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Interviewly",
+  title: "Medha",
   description: "AI-driven Teams interviewer — generates PS probe forms automatically",
 };
 

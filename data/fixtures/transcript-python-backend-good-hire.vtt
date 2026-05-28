@@ -1,0 +1,189 @@
+WEBVTT
+
+1
+00:00:02.000 --> 00:00:27.000
+<v Sid Chatterjee>Alright, let's start with async Python. Can you walk me through the asyncio event loop lifecycle and how coroutines are scheduled? I'd like to hear about the difference between asyncio.gather, asyncio.create_task, and asyncio.wait, and when you'd use each.</v>
+
+2
+00:00:28.000 --> 00:01:28.000
+<v Test Candidate>Sure. The event loop is the core of asyncio. It runs in a single thread and manages a queue of tasks. Coroutines are wrapped into Task objects when you call create_task, which schedules them on the loop. The loop iterates, picks a task that's ready, runs it until it hits an await that yields control, then moves to the next. asyncio.gather is the highest-level: it takes multiple awaitables, runs them concurrently, and returns a list of results in the order they were passed. It also propagates exceptions immediately. create_task is lower-level: you get a Task handle, and you can await it later or cancel it. asyncio.wait gives you two sets: done and pending, and you can control when to return via FIRST_COMPLETED, FIRST_EXCEPTION, or ALL_COMPLETED. I use gather for fire-and-forget-when-all-done scenarios, create_task when I need to manage tasks individually, and wait for advanced patterns like timeouts or partial results.</v>
+
+3
+00:01:29.000 --> 00:01:39.000
+<v Sid Chatterjee>Good. Now, what about blocking vs non-blocking I/O pitfalls? Have you ever accidentally blocked the event loop?</v>
+
+4
+00:01:40.000 --> 00:02:05.000
+<v Test Candidate>Yeah, early on I used requests inside an async view — that blocks the loop. The fix is to use httpx or aiohttp. Also, CPU-bound work like image processing will block. For that, I offload to a thread pool via loop.run_in_executor. The GIL doesn't help with CPU-bound tasks, so for heavy stuff I'd use multiprocessing or a separate service.</v>
+
+5
+00:02:06.000 --> 00:02:16.000
+<v Sid Chatterjee>Let's talk about async context managers and async generators. Can you give me an example where you've used them in production?</v>
+
+6
+00:02:17.000 --> 00:02:37.000
+<v Test Candidate>Sure. I've used async context managers for database sessions — like async with async_session() as session — to ensure proper cleanup. Async generators are great for streaming data: for example, reading rows from a large query and yielding them to an HTTP response. FastAPI's StreamingResponse works well with async generators.</v>
+
+7
+00:02:38.000 --> 00:02:50.000
+<v Sid Chatterjee>Switching to ORMs. You've worked with both SQLAlchemy and Django ORM. Can you compare SQLAlchemy 2.x's select() style vs the old query() style?</v>
+
+8
+00:02:51.000 --> 00:03:21.000
+<v Test Candidate>The new select() is more composable and type-safe. With query(), you chain methods like .filter(), .join(), but it's harder to reuse. select() returns a Select object that you can modify, combine, and pass around. It also integrates better with async — you can do await session.execute(select(...)). The old style is still supported but I prefer select() for new projects. For eager loading, I use .options(selectinload()) or .joinedload().</v>
+
+9
+00:03:22.000 --> 00:03:30.000
+<v Sid Chatterjee>How about N+1 query detection and mitigation? Walk me through a real scenario.</v>
+
+10
+00:03:31.000 --> 00:03:56.000
+<v Test Candidate>We had a list of orders, each with a customer. Without eager loading, Django ORM would fire a query for each customer. I used select_related for foreign keys and prefetch_related for reverse relations. In SQLAlchemy, I used joinedload or selectinload. To detect, I used Django Debug Toolbar or SQLAlchemy's echo=True. Also, I wrote a pytest fixture that counts queries and asserts no unexpected ones.</v>
+
+11
+00:03:57.000 --> 00:04:05.000
+<v Sid Chatterjee>Index design: composite, partial, covering indexes. When would you choose each?</v>
+
+12
+00:04:06.000 --> 00:04:31.000
+<v Test Candidate>Composite indexes for queries filtering on multiple columns, like WHERE status = 'active' AND created_at > '2023-01-01'. Partial indexes for filtered queries, e.g., only index active orders. Covering indexes include all columns needed by a query, so the DB never hits the table. I've used them for reporting queries. But covering indexes increase write overhead, so I balance based on read/write ratio.</v>
+
+13
+00:04:32.000 --> 00:04:42.000
+<v Sid Chatterjee>Session lifecycle in SQLAlchemy: flush vs commit. Can you explain the difference and when you'd use flush explicitly?</v>
+
+14
+00:04:43.000 --> 00:05:03.000
+<v Test Candidate>Flush sends pending SQL to the database but doesn't commit the transaction. Commit flushes and then commits. I use flush when I need the generated primary key before committing, or to check for integrity errors early. In a long transaction, I might flush periodically to reduce memory usage.</v>
+
+15
+00:05:04.000 --> 00:05:12.000
+<v Sid Chatterjee>Django ORM: F() expressions and annotate vs aggregate. Give me a concrete example.</v>
+
+16
+00:05:13.000 --> 00:05:33.000
+<v Test Candidate>F() lets you reference a model field in a query, like incrementing a counter: MyModel.objects.update(counter=F('counter') + 1). annotate adds a per-object computed field, e.g., annotate(total=Sum('items__price')). aggregate returns a single value, like aggregate(total=Sum('price')). I use annotate for list views and aggregate for summary stats.</v>
+
+17
+00:05:34.000 --> 00:05:42.000
+<v Sid Chatterjee>Raw SQL vs ORM: trade-offs and SQL injection prevention. How do you decide?</v>
+
+18
+00:05:43.000 --> 00:06:08.000
+<v Test Candidate>ORM for 90% of cases: productivity, type safety, migration support. Raw SQL for complex queries, bulk operations, or when ORM generates inefficient SQL. For raw SQL, I always use parameterized queries — never string interpolation. In SQLAlchemy, text() with bound params. In Django, raw() with params. Also, I use SQLAlchemy's Core for more control while staying safe.</v>
+
+19
+00:06:09.000 --> 00:06:17.000
+<v Sid Chatterjee>Migrations: Alembic vs Django migrations. Have you dealt with zero-downtime migrations?</v>
+
+20
+00:06:18.000 --> 00:06:38.000
+<v Test Candidate>I've used both. Alembic is more flexible for complex schemas. Django migrations are simpler but less powerful. For zero-downtime, I break migrations into phases: add column as nullable, backfill data, then set NOT NULL. Or use a shadow table. I've also used online schema change tools like pt-online-schema-change for MySQL.</v>
+
+21
+00:06:39.000 --> 00:06:47.000
+<v Sid Chatterjee>Let's move to web frameworks. FastAPI dependency injection: how does Depends() scoping work?</v>
+
+22
+00:06:48.000 --> 00:07:13.000
+<v Test Candidate>Depends() creates a dependency that can be a function, class, or async callable. By default, dependencies are request-scoped — they're called per request. You can control caching with use_cache=False. For global state, like a DB session, I use a generator dependency that yields the session and cleans up after. For singletons, I use lru_cache or a custom dependency with a lifespan.</v>
+
+23
+00:07:14.000 --> 00:07:22.000
+<v Sid Chatterjee>Django REST Framework: ViewSets vs APIView. When would you choose one over the other?</v>
+
+24
+00:07:23.000 --> 00:07:43.000
+<v Test Candidate>ViewSets are great for standard CRUD — they automatically generate URLs and actions. APIView gives you full control for custom endpoints, like a complex search or bulk operations. I use ViewSets for most models, but APIView when the logic doesn't fit the CRUD pattern. Also, I mix them: a ViewSet with custom @action methods.</v>
+
+25
+00:07:44.000 --> 00:07:52.000
+<v Sid Chatterjee>Pydantic v2: model_validator vs field_validator. How do you use custom types?</v>
+
+26
+00:07:53.000 --> 00:08:18.000
+<v Test Candidate>field_validator runs on a single field after type validation. model_validator runs on the whole model, either before or after field validation. I use model_validator for cross-field validation, like checking start_date < end_date. For custom types, I create a class with __get_pydantic_core_schema__ or use Annotated with constraints. For example, a PhoneNumber type that validates format.</v>
+
+27
+00:08:19.000 --> 00:08:29.000
+<v Sid Chatterjee>Middleware: custom middleware for auth, logging, rate limiting. How do you implement it in FastAPI vs Django?</v>
+
+28
+00:08:30.000 --> 00:08:55.000
+<v Test Candidate>In FastAPI, middleware is a callable that takes request and call_next. I've written middleware for JWT auth, request timing, and rate limiting using Redis. In Django, middleware is a class with __call__ or process_request/process_view. I prefer Django's process_view for view-level checks. For rate limiting, I use django-ratelimit or custom middleware with Redis.</v>
+
+29
+00:08:56.000 --> 00:09:04.000
+<v Sid Chatterjee>Background tasks: Celery vs FastAPI BackgroundTasks. How do you decide?</v>
+
+30
+00:09:05.000 --> 00:09:30.000
+<v Test Candidate>FastAPI BackgroundTasks is for lightweight, in-process tasks that can fail without impact — like sending a confirmation email. Celery is for heavy, durable tasks: retries, scheduling, distributed workers. I've used Celery with Redis as broker and result backend. For task routing, I use different queues for different priorities. Celery is overkill for simple tasks, but necessary for reliability.</v>
+
+31
+00:09:31.000 --> 00:09:39.000
+<v Sid Chatterjee>API versioning strategies: URL vs header vs content negotiation. Which do you prefer and why?</v>
+
+32
+00:09:40.000 --> 00:10:00.000
+<v Test Candidate>I prefer URL versioning (e.g., /v1/...) because it's explicit and easy to test. Header versioning is cleaner but harder to discover. Content negotiation (Accept header) is RESTful but complex. I've used URL versioning in production. For internal APIs, header versioning is fine. The key is consistency across the team.</v>
+
+33
+00:10:01.000 --> 00:10:11.000
+<v Sid Chatterjee>Testing: pytest fixtures and conftest scoping. How do you structure your test suite for a large project?</v>
+
+34
+00:10:12.000 --> 00:10:37.000
+<v Test Candidate>I use conftest.py files at each directory level for shared fixtures. Fixture scoping: session for DB connection, module for test data, function for per-test state. I use pytest-django for Django tests and pytest-asyncio for async. For parametrize, I test multiple inputs. I also use pytest-xdist for parallel execution. For large suites, I split tests into unit, integration, and e2e.</v>
+
+35
+00:10:38.000 --> 00:10:46.000
+<v Sid Chatterjee>mypy: strict mode, type narrowing, overloads. How do you use them in practice?</v>
+
+36
+00:10:47.000 --> 00:11:07.000
+<v Test Candidate>I enable strict mode in mypy.ini. Type narrowing with isinstance or TypeGuard helps with union types. I use overloads for functions that return different types based on input, like a deserializer. For generics, I use TypeVar with bounds. I also use Protocols for duck typing instead of ABCs. TypedDict is great for dicts with known keys.</v>
+
+37
+00:11:08.000 --> 00:11:16.000
+<v Sid Chatterjee>Mocking: unittest.mock vs pytest-mock. How do you patch in integration tests?</v>
+
+38
+00:11:17.000 --> 00:11:37.000
+<v Test Candidate>I prefer pytest-mock because it integrates with fixtures and auto-cleans up. For patching, I use mocker.patch('module.ClassName.method'). In integration tests, I mock external services like APIs or S3. I also use monkeypatch for environment variables. For database, I use test containers or in-memory SQLite, but I avoid mocking the ORM.</v>
+
+39
+00:11:38.000 --> 00:11:46.000
+<v Sid Chatterjee>Integration testing: test containers vs fixtures. How do you ensure database isolation?</v>
+
+40
+00:11:47.000 --> 00:12:12.000
+<v Test Candidate>I use test containers for Postgres/Redis in CI — they spin up real instances. For local, I use fixtures that create and drop tables per session. Isolation is achieved by wrapping each test in a transaction and rolling back. For Django, I use pytest-django's db fixture. For async, I use a session-scoped event loop and a transaction per test.</v>
+
+41
+00:12:13.000 --> 00:12:19.000
+<v Sid Chatterjee>Property-based testing with hypothesis. Have you used it?</v>
+
+42
+00:12:20.000 --> 00:12:35.000
+<v Test Candidate>Honestly, I haven't used hypothesis much. I've dabbled with it for testing serialization round-trips, but in production I rely more on example-based tests. I know the concept: generate random inputs and assert invariants. It's on my list to adopt more.</v>
+
+43
+00:12:36.000 --> 00:12:46.000
+<v Sid Chatterjee>Type hints: generics, Protocols vs ABC, TypedDict. Can you give an example where you chose Protocol over ABC?</v>
+
+44
+00:12:47.000 --> 00:13:07.000
+<v Test Candidate>I used Protocol for a 'Serializable' interface: any class with a .to_dict() method. ABC would require inheritance, which is rigid. Protocol allows duck typing. For example, I had a function that accepts any object with a .save() method. TypedDict is useful for API responses. Generics I use for repository patterns: Repository[T].</v>
+
+45
+00:13:08.000 --> 00:13:13.000
+<v Sid Chatterjee>We're almost out of time. Any questions for me?</v>
+
+46
+00:13:14.000 --> 00:13:24.000
+<v Test Candidate>Yes, what's the team's approach to async? Are you using FastAPI or Django async? And how do you handle observability?</v>
+
+47
+00:13:25.000 --> 00:13:35.000
+<v Sid Chatterjee>We're mostly FastAPI with async endpoints. Observability via OpenTelemetry and Datadog. Good question. Thanks for your time.</v>

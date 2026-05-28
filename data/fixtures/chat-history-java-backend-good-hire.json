@@ -1,0 +1,114 @@
+[
+  {
+    "id": "msg-001",
+    "createdDateTime": "2026-05-27T10:00:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Welcome to the Publicis Sapient Experience Engineering interview. This session will be recorded and transcribed for evaluation purposes. The recording will be retained for 30 days and then deleted. By continuing, you consent to this. Let's begin.</p>"
+    }
+  },
+  {
+    "id": "msg-002",
+    "createdDateTime": "2026-05-27T10:01:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Test Candidate"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "text",
+      "content": "Understood, I consent."
+    }
+  },
+  {
+    "id": "msg-003",
+    "createdDateTime": "2026-05-27T10:02:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>First question: Can you walk me through your experience with Spring Boot auto-configuration? How have you customized or overridden auto-configuration in your projects?</p>"
+    }
+  },
+  {
+    "id": "msg-004",
+    "createdDateTime": "2026-05-27T10:05:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Second question: How do you handle transaction propagation? Give me an example where REQUIRES_NEW was necessary.</p>"
+    }
+  },
+  {
+    "id": "msg-005",
+    "createdDateTime": "2026-05-27T10:08:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Please open the CoderPad exercise: 'Implement a simple REST API with Spring Boot and JPA'. Link: https://coderpad.io/abc123</p>"
+    }
+  },
+  {
+    "id": "msg-006",
+    "createdDateTime": "2026-05-27T10:09:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Test Candidate"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "text",
+      "content": "Opening it now."
+    }
+  },
+  {
+    "id": "msg-007",
+    "createdDateTime": "2026-05-27T10:30:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Test Candidate"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "text",
+      "content": "Submitted the solution."
+    }
+  },
+  {
+    "id": "msg-008",
+    "createdDateTime": "2026-05-27T10:32:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Final question: What's a project you're proud of and what was your role?</p>"
+    }
+  }
+]

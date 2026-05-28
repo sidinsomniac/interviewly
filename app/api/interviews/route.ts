@@ -4,6 +4,7 @@ import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
 import { findMeetingChatByTopic, resolveOnlineMeetingId } from "@/lib/graph/meeting";
 import { generateQuestionPlan } from "@/lib/llm/question-plan";
+import { getRoleSchema } from "@/lib/probeform/registry";
 import { CreateInterviewRequestSchema } from "@/types/index";
 
 export async function POST(req: NextRequest) {
@@ -16,8 +17,43 @@ export async function POST(req: NextRequest) {
 
     const {
       candidateName, candidateTotalYears, candidateRelevantYears,
-      roleAppliedFor, round, jdText, chosenExerciseId, meetingTopic,
+      roleAppliedFor, roleId, jdText, chosenExerciseId, meetingTopic,
     } = parsed.data;
+
+    const schema = getRoleSchema(roleId);
+    if (!schema) {
+      return NextResponse.json(
+        { ok: false, error: `Unknown roleId "${roleId}". See src/lib/probeform/registry.ts for the registered roles.` },
+        { status: 400 }
+      );
+    }
+
+    // Sub-Phase E dup-guard: refuse a manual create when the same
+    // meetingTopic already has an in-flight interview from the last 24h.
+    // n8n collisions are unlikely (n8n always generates a unique subject)
+    // but a recruiter hitting "Create" twice for the same candidate is
+    // the easy mistake to prevent. Compares trimmed-lowercase topics.
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const existing = store.list().find((iv) => {
+      const matchTopic =
+        iv.meetingTopic.trim().toLowerCase() === meetingTopic.trim().toLowerCase();
+      const within24h =
+        Date.now() - new Date(iv.createdAt).getTime() < ONE_DAY_MS;
+      return matchTopic && within24h &&
+             iv.status !== "completed" && iv.status !== "failed";
+    });
+    if (existing) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            `An interview for "${meetingTopic}" already exists ` +
+            `(scheduled by ${existing.source}). Open it instead.`,
+          existingInterviewId: existing.id,
+        },
+        { status: 409 }
+      );
+    }
 
     // In TEST_MODE we skip the Graph meeting lookup entirely so the user
     // can exercise the end-to-end pipeline without first scheduling a
@@ -42,16 +78,17 @@ export async function POST(req: NextRequest) {
     }
 
     const questionPlan = await generateQuestionPlan({
-      round, roleAppliedFor, candidateTotalYears, candidateRelevantYears, jdText,
+      schema, roleAppliedFor, candidateTotalYears, candidateRelevantYears, jdText,
     });
 
     const interview = store.create({
       candidateName, candidateTotalYears, candidateRelevantYears,
-      roleAppliedFor, round, jdText, chosenExerciseId,
+      roleAppliedFor, roleId, jdText, chosenExerciseId,
       meetingTopic, meetingId, chatId, organizerGuid,
       questionPlan,
       status: "draft",
       postedQuestionIndices: [],
+      source: "manual",
     });
 
     return NextResponse.json({ ok: true, interview });

@@ -2,18 +2,22 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Spinner } from "@/components/LoadingStates";
+import { listRoles } from "@/lib/probeform/registry";
+
+const AVAILABLE_ROLES = listRoles();
 
 const FormSchema = z.object({
   candidateName: z.string().min(1, "Required"),
   candidateTotalYears: z.number().min(0).max(50),
   candidateRelevantYears: z.number().min(0).max(50),
   roleAppliedFor: z.string().min(1, "Required"),
-  round: z.enum(["Core", "React"]),
+  roleId: z.string().min(1, "Required"),
   jdText: z.string().optional(),
   meetingTopic: z.string().min(1, "Required"),
 });
@@ -23,6 +27,10 @@ type FormValues = z.infer<typeof FormSchema>;
 export function NewInterviewForm() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  // Sub-Phase E: when /api/interviews returns 409 we keep the user on
+  // the form and render an inline notice linking to the existing record
+  // instead of throwing a toast and forgetting it.
+  const [duplicate, setDuplicate] = useState<{ id: string; message: string } | null>(null);
 
   const {
     register,
@@ -30,11 +38,16 @@ export function NewInterviewForm() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
-    defaultValues: { round: "Core", candidateTotalYears: 3, candidateRelevantYears: 3 },
+    defaultValues: {
+      roleId: AVAILABLE_ROLES[0]?.roleId ?? "react",
+      candidateTotalYears: 3,
+      candidateRelevantYears: 3,
+    },
   });
 
   async function onSubmit(values: FormValues) {
     setSubmitting(true);
+    setDuplicate(null);
     try {
       const res = await fetch("/api/interviews", {
         method: "POST",
@@ -42,6 +55,14 @@ export function NewInterviewForm() {
         body: JSON.stringify(values),
       });
       const data = await res.json();
+
+      // Sub-Phase E dup-guard: 409 with existingInterviewId → inline notice.
+      if (res.status === 409 && data?.existingInterviewId) {
+        setDuplicate({ id: data.existingInterviewId, message: data.error ?? "Interview already exists" });
+        setSubmitting(false);
+        return;
+      }
+
       if (!data.ok) throw new Error(data.error ?? "Unknown error");
       toast.success("Question plan generated!");
       router.push(`/interviews/${data.interview.id}/plan`);
@@ -53,6 +74,17 @@ export function NewInterviewForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      {duplicate && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-medium">{duplicate.message}</p>
+          <Link
+            href={`/interviews/${duplicate.id}/plan`}
+            className="mt-1 inline-block text-amber-800 underline hover:text-amber-900"
+          >
+            Open the existing interview →
+          </Link>
+        </div>
+      )}
       <Field label="Candidate Name" error={errors.candidateName?.message}>
         <input {...register("candidateName")} className={input()} placeholder="Jane Doe" />
       </Field>
@@ -70,10 +102,13 @@ export function NewInterviewForm() {
         <input {...register("roleAppliedFor")} className={input()} placeholder="Senior Experience Engineer" />
       </Field>
 
-      <Field label="Interview Round" error={errors.round?.message}>
-        <select {...register("round")} className={input()}>
-          <option value="Core">Core (HTML, CSS &amp; NFRs)</option>
-          <option value="React">Framework React</option>
+      <Field label="Role" error={errors.roleId?.message}>
+        <select {...register("roleId")} className={input()}>
+          {AVAILABLE_ROLES.map((schema) => (
+            <option key={schema.roleId} value={schema.roleId}>
+              {schema.displayName}
+            </option>
+          ))}
         </select>
       </Field>
 

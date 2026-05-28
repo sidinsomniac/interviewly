@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { store } from "@/lib/store";
+import { getRoleSchema } from "@/lib/probeform/registry";
 import { QuestionPlanView } from "@/components/QuestionPlanView";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
         <p className="text-sm text-gray-500 mb-1">Question Plan</p>
         <h1 className="text-2xl font-bold text-gray-900">{interview.candidateName}</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {interview.roleAppliedFor} · {interview.round} Round
+          {interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
         </p>
       </div>
       <QuestionPlanView interview={interview} />

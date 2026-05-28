@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Spinner } from "@/components/LoadingStates";
+import { getRoleSchema } from "@/lib/probeform/registry";
 import type { InterviewMetadata } from "@/types/index";
 
 export function StatusPanel({
@@ -43,7 +44,7 @@ export function StatusPanel({
         <div className="text-sm text-gray-600 space-y-1">
           <p><span className="font-medium text-gray-700">Candidate:</span> {interview.candidateName}</p>
           <p><span className="font-medium text-gray-700">Role:</span> {interview.roleAppliedFor}</p>
-          <p><span className="font-medium text-gray-700">Round:</span> {interview.round}</p>
+          <p><span className="font-medium text-gray-700">Role:</span> {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</p>
           {interview.meetingId && (
             <p><span className="font-medium text-gray-700">Meeting ID:</span> <span className="font-mono text-xs break-all">{interview.meetingId}</span></p>
           )}

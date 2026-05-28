@@ -2,8 +2,8 @@ import { getDelegatedClient } from "@/lib/graph/client";
 import type { PlannedQuestion } from "@/types/index";
 
 const CONSENT_MESSAGE =
-  "<p><strong>🤖 Interviewly Bot</strong></p>" +
-  "<p>This interview is being analyzed by <strong>Interviewly</strong>, an AI assistant. " +
+  "<p><strong>🤖 Medha</strong></p>" +
+  "<p>This interview is being analyzed by <strong>Medha</strong>, an AI assistant. " +
   "The conversation will be transcribed and a structured evaluation form will be generated. " +
   "By proceeding, you consent to this. Data retention: 30 days.</p>" +
   "<p>Please type <strong>I agree</strong> in the chat to acknowledge.</p>";

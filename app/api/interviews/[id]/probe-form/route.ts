@@ -30,7 +30,7 @@ export async function GET(
   const fileBuffer = fs.readFileSync(filePath);
   const safeName = interview.candidateName.replace(/\s+/g, "_");
   const dateStr = format(new Date(interview.createdAt), "yyyy-MM-dd");
-  const filename = `${safeName}_${interview.round}_${dateStr}.xlsx`;
+  const filename = `${safeName}_${interview.roleId}_${dateStr}.xlsx`;
 
   return new NextResponse(fileBuffer, {
     status: 200,

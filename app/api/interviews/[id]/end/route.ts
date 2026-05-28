@@ -9,7 +9,8 @@ import { resolveOrganizerGuid, listTranscripts, fetchTranscriptVtt, parseVtt } f
 import { fetchChatMessages } from "@/lib/graph/chatHistory";
 import { mergeTranscriptSources } from "@/lib/transcript-merge";
 import { mapTranscriptToProbeForm } from "@/lib/llm/transcript-mapping";
-import { loadTemplate, fillRound, addMetaSheet, toBuffer } from "@/lib/probeform/filler";
+import { loadTemplate, fillProbeForm, addMetaSheet, toBuffer } from "@/lib/probeform/filler";
+import { getRoleSchema } from "@/lib/probeform/registry";
 import { loadFixtureBundle } from "@/lib/fixtures";
 import type { TranscriptSegment } from "@/types/index";
 
@@ -21,6 +22,15 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
   const interview = store.get(id);
   if (!interview) return;
 
+  const schema = getRoleSchema(interview.roleId);
+  if (!schema) {
+    const msg = `Unknown roleId "${interview.roleId}" on interview ${id}. ` +
+      `Registry has: ${Object.keys((await import("@/lib/probeform/registry")).ROLE_REGISTRY).join(", ")}`;
+    log.error({ interviewId: id }, msg);
+    store.update(id, { status: "failed", errorMessage: msg });
+    return;
+  }
+
   try {
     let vttSegments: TranscriptSegment[] = injectedVttSegments ?? [];
     let vttRaw = "";
@@ -31,8 +41,27 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
     // Skip all Graph polling and use fixtures from data/fixtures/.
     // Lets the full pipeline run in <30 sec without a real meeting.
     if (config.app.testMode && !injectedVttSegments) {
+      // MEDHA_TEST_FIXTURE_ROLE is an explicit dev override: when set in
+      // .env.local, it forces the fixture lookup regardless of the
+      // interview's roleId. Useful for testing roles whose own fixture
+      // doesn't exist yet (e.g. UI shows "Frontend Engineer" but we want
+      // to load the existing "core" fixture). We read the raw env here
+      // rather than config.app.fixtureRole because that getter defaults
+      // to "react" — which would silently hijack every TEST_MODE run if
+      // we used it as the fallback when the env is unset.
+      const explicitFixtureRole = process.env.MEDHA_TEST_FIXTURE_ROLE?.trim();
+      const fixtureRole = explicitFixtureRole || interview.roleId;
+      log.info(
+        {
+          interviewId: id,
+          interviewRoleId: interview.roleId,
+          explicitFixtureRole: explicitFixtureRole ?? null,
+          resolvedFixtureRole: fixtureRole,
+        },
+        "TEST_MODE fixture role resolution"
+      );
       const bundle = await loadFixtureBundle({
-        role: interview.round?.toLowerCase(),
+        role: fixtureRole,
         outcome: config.app.fixtureOutcome,
       });
       vttRaw = bundle.vttRaw;
@@ -79,7 +108,7 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
     );
 
     const filledForm = await mapTranscriptToProbeForm({
-      round: interview.round,
+      schema,
       candidateName: interview.candidateName,
       roleAppliedFor: interview.roleAppliedFor,
       candidateTotalYears: interview.candidateTotalYears,
@@ -88,8 +117,8 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
       questionPlan: interview.questionPlan!,
     });
 
-    const wb = await loadTemplate();
-    fillRound(wb, interview.round, filledForm);
+    const wb = await loadTemplate(schema.excelTemplate);
+    fillProbeForm(wb, schema, filledForm);
 
     const transcriptSha256 = vttRaw
       ? createHash("sha256").update(vttRaw).digest("hex")

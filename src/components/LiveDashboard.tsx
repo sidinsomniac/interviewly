@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { InterviewMetadata } from "@/types/index";
+import { getRoleSchema } from "@/lib/probeform/registry";
 import { QuestionList } from "@/components/QuestionList";
 import { StatusPanel } from "@/components/StatusPanel";
 
@@ -28,7 +29,8 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
           <span aria-hidden>🧪</span>
           <span>
             <strong>Test mode active.</strong>{" "}
-            End Interview will use a fixture transcript instead of polling Teams.
+            Question + welcome posts are stubbed locally (not sent to any real Teams chat).
+            End Interview will use a fixture transcript.
             Probe form is for development only — the <code>_meta</code> sheet records this run as a fixture.
           </span>
         </div>
@@ -38,7 +40,7 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
           <h1 className="text-base font-semibold text-gray-900 truncate">
             {interview.candidateName}
           </h1>
-          <p className="text-xs text-gray-500">{interview.roleAppliedFor} · {interview.round} Round</p>
+          <p className="text-xs text-gray-500">{interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</p>
         </div>
       </header>
 

@@ -2,7 +2,8 @@ import { config as dotenv } from "dotenv";
 dotenv({ path: ".env.local" });
 
 import { generateQuestionPlan } from "../src/lib/llm/question-plan";
-import { REACT_ROWS } from "../src/lib/probeform/rows";
+import { getRoleSchema } from "../src/lib/probeform/registry";
+import { flattenRows } from "../src/lib/probeform/types";
 
 const FAKE_JD = `
 We are looking for a Senior Experience Engineer with strong React expertise.
@@ -11,10 +12,13 @@ Key skills: React, TypeScript, CSS-in-JS, accessibility (WCAG 2.1), web performa
 `;
 
 async function main() {
-  console.log("Generating question plan for React round…\n");
+  const schema = getRoleSchema("react");
+  if (!schema) throw new Error("react role not registered — see src/lib/probeform/registry.ts");
+
+  console.log(`Generating question plan for ${schema.displayName} (${schema.roleId})…\n`);
 
   const plan = await generateQuestionPlan({
-    round: "React",
+    schema,
     roleAppliedFor: "Senior Experience Engineer",
     candidateTotalYears: 7,
     candidateRelevantYears: 5,
@@ -25,7 +29,7 @@ async function main() {
   console.log(`Generated at: ${plan.generatedAt}`);
   console.log(`Questions: ${plan.questions.length}\n`);
 
-  const validRowIndices = new Set(REACT_ROWS.map((r) => r.rowIndex));
+  const validRowIndices = new Set(flattenRows(schema).map((r) => r.rowIndex));
   let valid = true;
 
   plan.questions.forEach((q, i) => {

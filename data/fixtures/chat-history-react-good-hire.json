@@ -2,7 +2,7 @@
   {
     "id": "msg-001",
     "createdDateTime": "2026-05-27T10:00:05.000Z",
-    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "from": { "user": { "displayName": "Medha" } },
     "messageType": "message",
     "body": {
       "contentType": "html",
@@ -19,7 +19,7 @@
   {
     "id": "msg-003",
     "createdDateTime": "2026-05-27T10:01:55.000Z",
-    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "from": { "user": { "displayName": "Medha" } },
     "messageType": "message",
     "body": {
       "contentType": "html",
@@ -29,7 +29,7 @@
   {
     "id": "msg-004",
     "createdDateTime": "2026-05-27T10:06:10.000Z",
-    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "from": { "user": { "displayName": "Medha" } },
     "messageType": "message",
     "body": {
       "contentType": "html",
@@ -39,7 +39,7 @@
   {
     "id": "msg-005",
     "createdDateTime": "2026-05-27T10:12:50.000Z",
-    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "from": { "user": { "displayName": "Medha" } },
     "messageType": "message",
     "body": {
       "contentType": "html",
@@ -63,7 +63,7 @@
   {
     "id": "msg-008",
     "createdDateTime": "2026-05-27T10:34:10.000Z",
-    "from": { "user": { "displayName": "Interviewly Bot" } },
+    "from": { "user": { "displayName": "Medha" } },
     "messageType": "message",
     "body": {
       "contentType": "html",

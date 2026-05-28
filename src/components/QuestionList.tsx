@@ -6,7 +6,7 @@ import { Spinner } from "@/components/LoadingStates";
 import type { InterviewMetadata } from "@/types/index";
 
 const CONSENT_TEXT =
-  "Hello! I'm Interviewly, an AI assistant helping conduct this interview. This session may be recorded and transcribed for evaluation purposes. By continuing, you consent to this recording. Let's get started!";
+  "Hello! I'm Medha, your AI interviewer. This session may be recorded and transcribed for evaluation purposes. By continuing, you consent to this recording. Let's get started!";
 
 export function QuestionList({
   interview,
@@ -16,10 +16,34 @@ export function QuestionList({
   onUpdate: () => Promise<void>;
 }) {
   const [posting, setPosting] = useState<number | null>(null);
+  // Sub-Phase E4: one-click welcome+consent button. Idempotent — server
+  // returns 409 after the first successful post; UI mirrors that with
+  // welcomePostedAt straight off the interview record.
+  const [postingWelcome, setPostingWelcome] = useState(false);
+  const welcomeSent = !!interview.welcomePostedAt;
 
   const questions = interview.questionPlan?.questions ?? [];
   const posted = new Set(interview.postedQuestionIndices ?? []);
   const total = questions.length;
+
+  async function postWelcome() {
+    setPostingWelcome(true);
+    try {
+      const res = await fetch(`/api/interviews/${interview.id}/post-welcome`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Failed");
+      toast.success(
+        data.testMode
+          ? "Posted (test mode stub) — Welcome + Consent"
+          : "Welcome + consent posted to Teams chat"
+      );
+      await onUpdate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Welcome post failed");
+    } finally {
+      setPostingWelcome(false);
+    }
+  }
 
   async function postQuestion(rowIndex: number, label: string) {
     setPosting(rowIndex);
@@ -31,7 +55,11 @@ export function QuestionList({
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error ?? "Failed");
-      toast.success(`"${label}" posted to Teams chat`);
+      toast.success(
+        data.testMode
+          ? `Posted (test mode stub) — "${label}"`
+          : `"${label}" posted to Teams chat`
+      );
       await onUpdate();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Post failed", {
@@ -44,6 +72,18 @@ export function QuestionList({
 
   return (
     <div className="p-4 space-y-3">
+      {/* Sub-Phase E4: one-click welcome+consent button */}
+      <div className="flex justify-end">
+        <button
+          onClick={postWelcome}
+          disabled={welcomeSent || postingWelcome}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {postingWelcome ? <Spinner size="sm" /> : null}
+          🤖 {welcomeSent ? "Welcome sent ✓" : "Post Welcome + Consent"}
+        </button>
+      </div>
+
       {/* Consent row */}
       <ConsentRow
         posted={posted.has(0)}

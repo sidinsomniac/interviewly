@@ -13,6 +13,24 @@ export function SkeletonLine({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded bg-gray-200 dark:bg-gray-700 h-4 ${className}`} />;
 }
 
+// Sub-Phase E: source chip mirrors the StatusBadge pattern. "n8n"
+// (scheduled via the n8n workflow) renders blue; "manual" (created from
+// the /interviews/new form) renders gray.
+export function SourceChip({ source }: { source: string }) {
+  const styles: Record<string, string> = {
+    n8n:    "bg-blue-100 text-blue-700",
+    manual: "bg-gray-100 text-gray-600",
+  };
+  const labels: Record<string, string> = {
+    n8n: "n8n", manual: "manual",
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[source] ?? "bg-gray-100 text-gray-600"}`}>
+      {labels[source] ?? source}
+    </span>
+  );
+}
+
 export function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     draft:       "bg-gray-100 text-gray-700",

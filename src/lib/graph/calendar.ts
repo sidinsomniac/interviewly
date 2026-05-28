@@ -1,4 +1,5 @@
 import { getAppClient } from "@/lib/graph/client";
+import { log } from "@/lib/logger";
 
 export async function createTeamsMeeting(params: {
   organizerEmail: string;
@@ -20,7 +21,16 @@ export async function createTeamsMeeting(params: {
   const user = await client.api(`/users/${params.organizerEmail}`).get();
   const organizerGuid = user.id as string;
 
-  // 2. Create calendar event with an online meeting attached
+  // Diagnostic checkpoint #2: log the attendees array immediately
+  // before the events POST so we see what Medha is about to send even
+  // if Graph throws. A missing/empty candidateEmail here points at the
+  // schedule-interview route's attendees-array construction.
+  log.info({ attendees: params.attendees }, "createTeamsMeeting — attendees");
+
+  // 2. Create calendar event with an online meeting attached.
+  // `responseRequested: true` is required by some tenants for Graph
+  // to actually send the Outlook invitation email — set it explicitly
+  // so this isn't a confounding variable when diagnosing missing invites.
   const event = await client.api(`/users/${organizerGuid}/events`).post({
     subject: params.subject,
     start: { dateTime: params.startIso, timeZone: "Asia/Kolkata" },
@@ -30,6 +40,7 @@ export async function createTeamsMeeting(params: {
       type: "required",
     })),
     body: { contentType: "HTML", content: params.bodyContent },
+    responseRequested: true,
     isOnlineMeeting: true,
     onlineMeetingProvider: "teamsForBusiness",
     allowNewTimeProposals: false,
@@ -45,10 +56,34 @@ export async function createTeamsMeeting(params: {
     .get();
   const meeting = (meetingsRes.value ?? [])[0];
   if (!meeting) throw new Error("Online meeting not found by joinUrl after event creation");
+  const onlineMeetingId = meeting.id as string;
+
+  // Sub-Phase E: PATCH the meeting to bypass the lobby and auto-record.
+  // Non-fatal — tenants vary on which of these settings they accept, so
+  // a 403/400 here must not block the scheduling pipeline. The booth-day
+  // verification is the pino log line emitted below.
+  try {
+    await client
+      .api(`/users/${organizerGuid}/onlineMeetings/${onlineMeetingId}`)
+      .patch({
+        allowedPresenters: "everyone",
+        lobbyBypassSettings: {
+          scope: "everyone",
+          isDialInBypassEnabled: true,
+        },
+        recordAutomatically: true,
+      });
+    log.info({ onlineMeetingId }, "Meeting properties PATCH applied");
+  } catch (err) {
+    log.warn(
+      { onlineMeetingId, err: err instanceof Error ? err.message : String(err) },
+      "Meeting properties PATCH failed (non-fatal)"
+    );
+  }
 
   return {
     eventId: event.id as string,
-    onlineMeetingId: meeting.id as string,
+    onlineMeetingId,
     joinUrl,
     chatId: (meeting.chatInfo?.threadId as string) ?? "",
     organizerGuid,

@@ -1,0 +1,114 @@
+[
+  {
+    "id": "msg-001",
+    "createdDateTime": "2026-05-27T10:00:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Welcome to the Publicis Sapient Experience Engineering interview. This session will be recorded and transcribed for evaluation purposes. The recording will be retained for 30 days and then deleted. By continuing, you consent to this. Let's begin.</p>"
+    }
+  },
+  {
+    "id": "msg-002",
+    "createdDateTime": "2026-05-27T10:01:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Test Candidate"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "text",
+      "content": "Understood, I consent."
+    }
+  },
+  {
+    "id": "msg-003",
+    "createdDateTime": "2026-05-27T10:02:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>First question: Can you walk me through the asyncio event loop lifecycle and how coroutines are scheduled? I'd like to hear about the difference between asyncio.gather, asyncio.create_task, and asyncio.wait, and when you'd use each.</p>"
+    }
+  },
+  {
+    "id": "msg-004",
+    "createdDateTime": "2026-05-27T10:05:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Second question: Let's talk about async context managers and async generators. Can you give me an example where you've used them in production?</p>"
+    }
+  },
+  {
+    "id": "msg-005",
+    "createdDateTime": "2026-05-27T10:10:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Here is a CoderPad link for a live coding exercise: <a href='https://coderpad.io/abc123'>Python Async I/O Exercise</a>. Please open it and implement an async function that fetches data from multiple URLs concurrently with error handling.</p>"
+    }
+  },
+  {
+    "id": "msg-006",
+    "createdDateTime": "2026-05-27T10:11:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Test Candidate"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "text",
+      "content": "Opening it now."
+    }
+  },
+  {
+    "id": "msg-007",
+    "createdDateTime": "2026-05-27T10:25:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Test Candidate"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "text",
+      "content": "Submitted my solution."
+    }
+  },
+  {
+    "id": "msg-008",
+    "createdDateTime": "2026-05-27T10:30:00.000Z",
+    "from": {
+      "user": {
+        "displayName": "Medha"
+      }
+    },
+    "messageType": "message",
+    "body": {
+      "contentType": "html",
+      "content": "<p>Final question: We're almost out of time. Any questions for me about the role or the team?</p>"
+    }
+  }
+]

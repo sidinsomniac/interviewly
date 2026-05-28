@@ -1,6 +1,6 @@
-// Smoke test: find a Teams meeting chat by topic, then post "Hello from Interviewly"
+// Smoke test: find a Teams meeting chat by topic, then post "Hello from Medha"
 // into the meeting chat as the Bot User.
-// Usage: MEETING_TOPIC="Interviewly smoke test" pnpm smoke:send-message
+// Usage: MEETING_TOPIC="Medha smoke test" pnpm smoke:send-message
 // Fallback: MEETING_JOIN_URL="https://..." still works if the bot is the organizer.
 
 import { config as dotenv } from "dotenv";
@@ -38,7 +38,7 @@ async function main() {
     console.log(`✓ Resolved meeting "${meeting.subject ?? meeting.id}" — chatId: ${chatId}`);
   } else {
     console.error("Set MEETING_TOPIC (preferred) or MEETING_JOIN_URL env var before running.");
-    console.error('Example: MEETING_TOPIC="Interviewly smoke test" pnpm smoke:send-message');
+    console.error('Example: MEETING_TOPIC="Medha smoke test" pnpm smoke:send-message');
     process.exit(1);
   }
 
@@ -47,7 +47,7 @@ async function main() {
   const msg = await client.api(`/chats/${chatId}/messages`).post({
     body: {
       contentType: "html",
-      content: "<p><strong>Hello from Interviewly</strong> 👋 — smoke test successful.</p>",
+      content: "<p><strong>Hello from Medha</strong> 👋 — smoke test successful.</p>",
     },
   });
 

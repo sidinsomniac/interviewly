@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { store } from "@/lib/store";
-import { StatusBadge } from "@/components/LoadingStates";
+import { getRoleSchema } from "@/lib/probeform/registry";
+import { StatusBadge, SourceChip } from "@/components/LoadingStates";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export default function InterviewsPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {["Candidate", "Role", "Round", "Status", "Date", "Actions"].map((h) => (
+                {["Candidate", "Role", "Round", "Source", "Status", "Date", "Actions"].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     {h}
                   </th>
@@ -46,10 +47,14 @@ export default function InterviewsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {interviews.map((iv) => (
-                <tr key={iv.id} className="hover:bg-gray-50 transition-colors">
+                <tr
+                  key={iv.id}
+                  className={`hover:bg-gray-50 transition-colors ${iv.status === "scheduled" ? "bg-blue-50/60" : ""}`}
+                >
                   <td className="px-4 py-3 font-medium text-gray-900">{iv.candidateName}</td>
                   <td className="px-4 py-3 text-gray-600 max-w-[180px] truncate">{iv.roleAppliedFor}</td>
-                  <td className="px-4 py-3 text-gray-600">{iv.round}</td>
+                  <td className="px-4 py-3 text-gray-600">{getRoleSchema(iv.roleId)?.displayName ?? iv.roleId}</td>
+                  <td className="px-4 py-3"><SourceChip source={iv.source} /></td>
                   <td className="px-4 py-3"><StatusBadge status={iv.status} /></td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                     {format(new Date(iv.createdAt), "MMM d, yyyy")}

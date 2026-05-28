@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { store } from "@/lib/store";
 import { sendChatMessage, formatQuestionMessage } from "@/lib/graph/chat";
+import { config } from "@/lib/config";
+import { log } from "@/lib/logger";
 import { z } from "zod";
 
 const PostQuestionBodySchema = z.object({ rowIndex: z.number().int() });
@@ -44,14 +46,33 @@ export async function POST(
     }
 
     const html = formatQuestionMessage(questionToPost, displayIndex, total);
-    const messageId = await sendChatMessage(interview.chatId, html);
+
+    // In TEST_MODE the interview's chatId is a stub like `test-mode-chat-...`
+    // (see /api/interviews POST). Hitting Graph with it returns 404. Stub
+    // the post so the demo flow stays clickable; the local postedQuestionIndices
+    // state still updates so the dashboard reflects the action.
+    let messageId: string;
+    if (config.app.testMode) {
+      messageId = `test-mode-msg-${Date.now()}-${rowIndex}`;
+      log.warn(
+        { interviewId: id, rowIndex, chatId: interview.chatId },
+        "TEST_MODE: skipping Graph chat post; stamping local state only"
+      );
+    } else {
+      messageId = await sendChatMessage(interview.chatId, html);
+    }
 
     store.update(id, {
       postedQuestionIndices: [...interview.postedQuestionIndices, rowIndex],
       status: "in_progress",
     });
 
-    return NextResponse.json({ ok: true, messageId, postedAt: new Date().toISOString() });
+    return NextResponse.json({
+      ok: true,
+      messageId,
+      postedAt: new Date().toISOString(),
+      testMode: config.app.testMode,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

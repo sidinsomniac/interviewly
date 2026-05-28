@@ -1,4 +1,7 @@
 import { getDelegatedClient, getAppClient } from "@/lib/graph/client";
+import { resolveOrganizerGuid } from "@/lib/graph/transcript";
+import { config } from "@/lib/config";
+import { log } from "@/lib/logger";
 
 export async function findMeetingChatByTopic(
   topic: string
@@ -24,8 +27,20 @@ export async function findMeetingChatByTopic(
 
   const meetingChats = chats.filter((c) => c.chatType === "meeting");
 
-  const matches = meetingChats
-    .filter((c) => c.topic?.toLowerCase().includes(topic.toLowerCase()))
+  // Resolve MS_ORGANIZER_EMAIL → AAD GUID so we can filter on
+  // c.onlineMeetingInfo.organizer.id. The bot may be invited to meetings
+  // from several organizers; this env scopes which organizer's meetings
+  // the bot considers. Reuses the app-tier helper already used by the
+  // transcript-fetch path so we're consistent across both call sites.
+  const organizerEmail = config.ms.organizerEmail;
+  const expectedOrganizerGuid = await resolveOrganizerGuid(organizerEmail);
+
+  const topicMatches = meetingChats.filter(
+    (c) => c.topic?.toLowerCase().includes(topic.toLowerCase())
+  );
+
+  const matches = topicMatches
+    .filter((c) => c.onlineMeetingInfo?.organizer?.id === expectedOrganizerGuid)
     .sort((a, b) => {
       const ta = a.lastUpdatedDateTime ? new Date(a.lastUpdatedDateTime).getTime() : 0;
       const tb = b.lastUpdatedDateTime ? new Date(b.lastUpdatedDateTime).getTime() : 0;
@@ -33,18 +48,44 @@ export async function findMeetingChatByTopic(
     });
 
   if (matches.length === 0) {
-    const found = meetingChats.map((c) => c.topic ?? "(no topic)").join(", ");
+    // Differentiate the two failure modes so the user sees which one
+    // is biting them: nothing matches the topic at all, or topics match
+    // but the configured organizer didn't schedule any of them.
+    const allTopics = meetingChats.map((c) => c.topic ?? "(no topic)").join(", ");
+    if (topicMatches.length === 0) {
+      throw new Error(
+        `No meeting chat found with topic containing "${topic}". ` +
+        `Meeting chats visible to the bot: [${allTopics || "none"}]. ` +
+        "Make sure the Bot User is a participant and the meeting has started."
+      );
+    }
+    const wrongOrgTopics = topicMatches
+      .map((c) => `"${c.topic ?? "(no topic)"}" (organizer ${c.onlineMeetingInfo?.organizer?.id ?? "unknown"})`)
+      .join(", ");
     throw new Error(
-      `No meeting chat found with topic containing "${topic}". ` +
-      `Meeting chats visible to the bot: [${found || "none"}]. ` +
-      "Make sure the Bot User is a participant and the meeting has started."
+      `Topic "${topic}" matched ${topicMatches.length} chat(s), but none were organized by ` +
+      `MS_ORGANIZER_EMAIL=${organizerEmail} (GUID ${expectedOrganizerGuid}). ` +
+      `Wrong-organizer matches: [${wrongOrgTopics}]. ` +
+      "Either update MS_ORGANIZER_EMAIL to the actual organizer's email or use a more distinctive meetingTopic."
     );
   }
 
+  const picked = matches[0];
+  log.info(
+    {
+      chatId: picked.id,
+      topic: picked.topic,
+      organizerGuid: picked.onlineMeetingInfo?.organizer?.id,
+      lastUpdatedDateTime: picked.lastUpdatedDateTime,
+      candidatesConsidered: matches.length,
+    },
+    "Bot found meeting chat"
+  );
+
   return {
-    chatId: matches[0].id,
-    organizerGuid: matches[0].onlineMeetingInfo?.organizer?.id ?? undefined,
-    joinWebUrl: matches[0].onlineMeetingInfo?.joinWebUrl ?? undefined,
+    chatId: picked.id,
+    organizerGuid: picked.onlineMeetingInfo?.organizer?.id ?? undefined,
+    joinWebUrl: picked.onlineMeetingInfo?.joinWebUrl ?? undefined,
   };
 }
 

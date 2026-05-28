@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { StatusBadge, Spinner } from "@/components/LoadingStates";
 import { TranscriptUpload } from "@/components/TranscriptUpload";
+import { getRoleSchema } from "@/lib/probeform/registry";
 import type { InterviewMetadata } from "@/types/index";
 
 export function ResultClient({ interview: initial }: { interview: InterviewMetadata }) {
@@ -37,7 +38,7 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
           <h1 className="text-2xl font-bold text-gray-900">{interview.candidateName}</h1>
           <StatusBadge status={interview.status} />
         </div>
-        <p className="text-sm text-gray-500">{interview.roleAppliedFor} · {interview.round} Round</p>
+        <p className="text-sm text-gray-500">{interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</p>
       </div>
 
       {(interview.status === "ended") && (
@@ -56,7 +57,7 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
             <p className="text-sm font-semibold text-green-800 mb-1">Probe form ready</p>
             <p className="text-sm text-green-700">
               {interview.postedQuestionIndices?.length ?? 0} questions posted ·{" "}
-              {interview.round} round
+              {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
             </p>
           </div>
 

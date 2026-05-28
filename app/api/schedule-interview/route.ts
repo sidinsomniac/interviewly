@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ScheduleInterviewRequestSchema } from "@/types/index";
-import type { InterviewRound } from "@/types/index";
 import { generateQuestionPlan } from "@/lib/llm/question-plan";
+import { detectRoleId, getRoleSchema } from "@/lib/probeform/registry";
 import { createTeamsMeeting } from "@/lib/graph/calendar";
 import { store } from "@/lib/store";
 import { config } from "@/lib/config";
@@ -16,15 +16,35 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
+    // Diagnostic checkpoint #1: surface the identity fields exactly as
+    // n8n sent them, so a missing/empty candidateEmail is immediately
+    // visible in the dev log without us having to reach into Graph.
+    log.info(
+      {
+        candidateName: data.candidateName,
+        candidateEmail: data.candidateEmail,
+        interviewerEmail: data.interviewerEmail,
+        jobTitle: data.jobTitle,
+      },
+      "/api/schedule-interview — payload identity"
+    );
+
     // Default scheduling 5 min from now (for demo) if not provided.
     const scheduledFor = data.scheduledFor ?? new Date(Date.now() + 5 * 60_000).toISOString();
     const duration = data.durationMinutes ?? 45;
     const endIso = new Date(new Date(scheduledFor).getTime() + duration * 60_000).toISOString();
 
     // 1. Generate question plan from JD.
-    const round: InterviewRound = data.jobTitle.toLowerCase().includes("react") ? "React" : "Core";
+    const roleId = detectRoleId(data.jobTitle);
+    const schema = getRoleSchema(roleId);
+    if (!schema) {
+      return NextResponse.json(
+        { ok: false, error: `detectRoleId returned unknown roleId "${roleId}". Registry empty?` },
+        { status: 500 }
+      );
+    }
     const questionPlan = await generateQuestionPlan({
-      round,
+      schema,
       roleAppliedFor: data.jobTitle,
       candidateTotalYears: data.yearsExperience,
       candidateRelevantYears: data.yearsExperience,
@@ -40,7 +60,7 @@ export async function POST(req: NextRequest) {
       endIso,
       attendees: [
         { email: data.candidateEmail, name: data.candidateName },
-        { email: config.ms.botUserEmail, name: "Interviewly Bot" },
+        { email: config.ms.botUserEmail, name: "Medha" },
       ],
       bodyContent:
         `<p>Auto-scheduled by Medha.</p>` +
@@ -54,7 +74,7 @@ export async function POST(req: NextRequest) {
       candidateTotalYears: data.yearsExperience,
       candidateRelevantYears: data.yearsExperience,
       roleAppliedFor: data.jobTitle,
-      round,
+      roleId,
       jdText: data.jobDescription,
       meetingTopic: subject,
       meetingId: meeting.onlineMeetingId,
@@ -63,9 +83,30 @@ export async function POST(req: NextRequest) {
       organizerGuid: meeting.organizerGuid,
       questionPlan,
       postedQuestionIndices: [],
+      source: "n8n",
+      interviewerEmail: data.interviewerEmail,
     });
 
     log.info({ interviewId: interview.id, meetingId: meeting.onlineMeetingId }, "Interview scheduled");
+
+    // Sub-Phase E: hand back dashboard/live/result URLs so the n8n
+    // workflow's interviewer email can embed "Open in Medha" CTAs.
+    const base = config.app.baseUrl.replace(/\/$/, "");
+    const dashboardUrl = `${base}/interviews/${interview.id}/plan`;
+    const liveUrl =      `${base}/interviews/${interview.id}/live`;
+    const resultUrl =    `${base}/interviews/${interview.id}/result`;
+
+    // Diagnostic checkpoint #3: log the exact URLs handed back to n8n
+    // so we can correlate the response with whatever n8n's downstream
+    // Gmail node renders.
+    log.info(
+      {
+        interviewId: interview.id,
+        meetingUrl: meeting.joinUrl,
+        dashboardUrl,
+      },
+      "/api/schedule-interview — response sent"
+    );
 
     return NextResponse.json({
       ok: true,
@@ -76,6 +117,9 @@ export async function POST(req: NextRequest) {
       chatId: meeting.chatId,
       scheduledFor,
       calendarEventId: meeting.eventId,
+      dashboardUrl,
+      liveUrl,
+      resultUrl,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

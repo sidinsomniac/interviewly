@@ -8,16 +8,16 @@
 //
 //   loadFixtureBundle  →  mergeTranscriptSources  →
 //   generateQuestionPlan  →  mapTranscriptToProbeForm  →
-//   loadTemplate / fillRound / addMetaSheet / toBuffer
+//   loadTemplate / fillProbeForm / addMetaSheet / toBuffer
 //
 // Pass criteria (all must hold):
 //   1. config.app.testMode is true (i.e., .env.local is wired up)
 //   2. Fixture bundle loads with non-empty vtt + chat + a defined
 //      codeSubmission (proves the coderpad rename took effect)
-//   3. ≥70% of REACT_ROWS get a non-default proficiency AND
-//      non-empty feedbackDetails ("realistic-enough" bar; the
-//      good-hire transcript covers most rows but a few — RTL/enzyme,
-//      error boundaries — may legitimately not surface).
+//   3. ≥70% of the React schema's flattened rows get a non-default
+//      proficiency AND non-empty feedbackDetails ("realistic-enough"
+//      bar; the good-hire transcript covers most rows but a few —
+//      RTL/enzyme, error boundaries — may legitimately not surface).
 //   4. _meta sheet records test_mode=true, fixture_id=react/good-hire,
 //      model_provider=deepseek.
 // ============================================================
@@ -33,8 +33,9 @@ import { loadFixtureBundle } from "../src/lib/fixtures";
 import { mergeTranscriptSources } from "../src/lib/transcript-merge";
 import { generateQuestionPlan } from "../src/lib/llm/question-plan";
 import { mapTranscriptToProbeForm } from "../src/lib/llm/transcript-mapping";
-import { loadTemplate, fillRound, addMetaSheet, toBuffer } from "../src/lib/probeform/filler";
-import { REACT_ROWS } from "../src/lib/probeform/rows";
+import { loadTemplate, fillProbeForm, addMetaSheet, toBuffer } from "../src/lib/probeform/filler";
+import { getRoleSchema } from "../src/lib/probeform/registry";
+import { flattenRows } from "../src/lib/probeform/types";
 
 const PASS_THRESHOLD = 0.70;   // ≥70% rows filled → pass
 const STRETCH_GOAL  = 0.80;    // ≥80% rows filled → stretch goal hit
@@ -45,10 +46,17 @@ async function main(): Promise<number> {
     console.error("❌ config.app.testMode is false — set MEDHA_TEST_MODE=true in .env.local");
     return 1;
   }
-  console.log(`✓ MEDHA_TEST_MODE=true; provider=${config.llm.provider}/${config.llm.modelId}\n`);
+  const roleId = process.env.ROLE_ID ?? "react";
+  const schema = getRoleSchema(roleId);
+  if (!schema) {
+    console.error(`❌ role "${roleId}" not registered — see src/lib/probeform/registry.ts`);
+    return 1;
+  }
+  const reactRows = flattenRows(schema);
+  console.log(`✓ MEDHA_TEST_MODE=true; provider=${config.llm.provider}/${config.llm.modelId}; role=${schema.roleId}\n`);
 
   // 2. Load fixture bundle (same call the end route makes)
-  const bundle = await loadFixtureBundle({ role: "react", outcome: "good-hire" });
+  const bundle = await loadFixtureBundle({ role: roleId, outcome: "good-hire" });
   if (bundle.vttSegments.length === 0) {
     console.error("❌ fixture VTT parsed to zero segments");
     return 1;
@@ -57,19 +65,18 @@ async function main(): Promise<number> {
     console.error("❌ fixture chat parsed to zero segments");
     return 1;
   }
-  if (!bundle.codeSubmission) {
-    console.error("❌ fixture coderpad submission missing — is the file named coderpad-submission-react-good-hire.json?");
-    return 1;
-  }
-  console.log(
-    `✓ bundle: vtt=${bundle.vttSegments.length} segs, chat=${bundle.chatSegments.length} segs, ` +
-      `code=${bundle.codeSubmission.exerciseId} (${bundle.codeSubmission.language})\n`
-  );
+  // Coderpad fixture is optional — Sub-Phase B introduced the rename check
+  // for react where the file exists; java/python/etc. deliberately skip it.
+  // Print whichever shape is present so the run log is informative.
+  const codeBlurb = bundle.codeSubmission
+    ? `code=${bundle.codeSubmission.exerciseId} (${bundle.codeSubmission.language})`
+    : "code=(none — fixture lacks coderpad submission)";
+  console.log(`✓ bundle: vtt=${bundle.vttSegments.length} segs, chat=${bundle.chatSegments.length} segs, ${codeBlurb}\n`);
 
   // 3. Generate the question plan the same way the create-interview route does
   console.log("Generating question plan…");
   const questionPlan = await generateQuestionPlan({
-    round: "React",
+    schema,
     roleAppliedFor: "Senior Experience Engineer",
     candidateTotalYears: 7,
     candidateRelevantYears: 5,
@@ -81,7 +88,7 @@ async function main(): Promise<number> {
   console.log(`Merged transcript: ${transcript.length} total segments. Mapping → probe form…`);
 
   const filled = await mapTranscriptToProbeForm({
-    round: "React",
+    schema,
     candidateName: "Test Candidate",
     roleAppliedFor: "Senior Experience Engineer",
     candidateTotalYears: 7,
@@ -91,12 +98,12 @@ async function main(): Promise<number> {
   });
 
   // 5. Score the realism of the output
-  const totalRows = REACT_ROWS.length;
+  const totalRows = reactRows.length;
   const compByRow = new Map(filled.competencies.map((c) => [c.rowIndex, c]));
   let probed = 0;
   let withFeedback = 0;
   const missing: number[] = [];
-  for (const row of REACT_ROWS) {
+  for (const row of reactRows) {
     const c = compByRow.get(row.rowIndex);
     if (!c) { missing.push(row.rowIndex); continue; }
     const isProbed = c.proficiency && c.proficiency !== "Did not probe";
@@ -111,7 +118,7 @@ async function main(): Promise<number> {
   const ratio = probed / totalRows;
 
   console.log("\n--- Probe form realism ---");
-  console.log(`Total React rows:           ${totalRows}`);
+  console.log(`Total ${schema.displayName} rows: ${totalRows}`);
   console.log(`Rows present in output:     ${filled.competencies.length}`);
   console.log(`Rows fully filled:          ${probed} (${(ratio * 100).toFixed(0)}%)`);
   console.log(`Outcome:                    ${filled.header.interviewOutcome}`);
@@ -121,8 +128,8 @@ async function main(): Promise<number> {
   console.log("--------------------------\n");
 
   // 6. Build the Excel — exactly the same calls the end route makes
-  const wb = await loadTemplate();
-  fillRound(wb, "React", filled);
+  const wb = await loadTemplate(schema.excelTemplate);
+  fillProbeForm(wb, schema, filled);
 
   const vttSha256 = createHash("sha256").update(bundle.vttRaw).digest("hex");
   addMetaSheet(wb, {
@@ -142,7 +149,7 @@ async function main(): Promise<number> {
   const buffer = await toBuffer(wb);
   const outputDir = path.resolve(process.cwd(), "data/output");
   fs.mkdirSync(outputDir, { recursive: true });
-  const outPath = path.join(outputDir, "smoke-end-interview-testmode.xlsx");
+  const outPath = path.join(outputDir, `smoke-end-interview-testmode-${schema.roleId}.xlsx`);
   fs.writeFileSync(outPath, buffer);
   console.log(`✓ wrote ${outPath}`);
 

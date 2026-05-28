@@ -1,16 +1,17 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { format } from "date-fns";
 import { getChatModel, structuredOutputMethod } from "@/lib/llm";
-import { ROWS_BY_ROUND } from "@/lib/probeform/rows";
 import { FilledProbeFormSchema } from "@/types/index";
-import type { InterviewRound, TranscriptSegment, QuestionPlan, FilledProbeForm } from "@/types/index";
+import type { TranscriptSegment, QuestionPlan, FilledProbeForm } from "@/types/index";
+import type { RoleSchema } from "@/lib/probeform/types";
+import { flattenRows } from "@/lib/probeform/types";
 import { log } from "@/lib/logger";
 
 // JSON shape skeleton for jsonMode providers (DeepSeek). When the API
 // can't enforce a Zod-derived JSON schema strictly, the prompt has to
 // carry the shape itself.
 const FILLED_FORM_SHAPE = `{
-  "round": "Core" | "React",
+  "roleId": "<the roleId string passed below>",
   "header": {
     "candidateName": "<string>",
     "totalYears": <number>,
@@ -48,7 +49,7 @@ function transcriptToText(segments: TranscriptSegment[]): string {
 }
 
 export async function mapTranscriptToProbeForm(input: {
-  round: InterviewRound;
+  schema: RoleSchema;
   candidateName: string;
   roleAppliedFor: string;
   candidateTotalYears: number;
@@ -56,15 +57,21 @@ export async function mapTranscriptToProbeForm(input: {
   transcript: TranscriptSegment[];
   questionPlan: QuestionPlan;
 }): Promise<FilledProbeForm> {
-  const { round, candidateName, roleAppliedFor, candidateTotalYears, candidateRelevantYears, transcript, questionPlan } = input;
-  const rows = ROWS_BY_ROUND[round];
+  const { schema, candidateName, roleAppliedFor, candidateTotalYears, candidateRelevantYears, transcript, questionPlan } = input;
+  const rows = flattenRows(schema);
   const rowsJson = JSON.stringify(rows, null, 2);
   const questionsJson = JSON.stringify(questionPlan.questions, null, 2);
   const transcriptText = transcriptToText(transcript);
 
+  // Category outline mirrors what generateQuestionPlan emits — helps the
+  // LLM keep its mental model organized when there are 27+ rows.
+  const categoryOutline = schema.categories
+    .map((c) => `- ${c.name}: rows ${c.rows.map((r) => r.rowIndex).join(", ")}`)
+    .join("\n");
+
   const systemPrompt = `You are a senior hiring panel member at Publicis Sapient reviewing a candidate interview transcript. Your task is to fill out the PS Experience Engineering Hiring Probe Form based on the conversation that took place.
 
-For each competency row in the ${round} round, you will:
+For each competency row of the ${schema.displayName} probe form, you will:
 
 1. Choose a proficiency level from the EXACT vocabulary for that row's rubric type. The two rubrics use DIFFERENT exact strings — match them character-for-character including spaces and any typos.
 
@@ -86,7 +93,10 @@ Development rubric (used by other rows):
 
 3. If the conversation didn't touch a row's topic at all, choose "Did not probe" and write feedbackDetails: "-".
 
-The competency rows for this round are:
+The probe form is organized into these categories:
+${categoryOutline}
+
+Full competency rows for this role:
 ${rowsJson}
 
 The interview's planned questions were:
@@ -110,13 +120,13 @@ Output ONLY a single JSON object — no prose, no markdown fences — with this 
 
 ${FILLED_FORM_SHAPE}
 
-The "round" field MUST be exactly the string "${round}". Every "rowIndex" MUST match one of the rowIndex values from the rows list above. Every "proficiency" MUST be one of the EXACT strings from the architecture or development rubric vocab above (match character-for-character including trailing spaces and the 'theoritically' typo).`;
+The "roleId" field MUST be exactly the string "${schema.roleId}". Every "rowIndex" MUST match one of the rowIndex values from the rows list above. Every "proficiency" MUST be one of the EXACT strings from the architecture or development rubric vocab above (match character-for-character including trailing spaces and the 'theoritically' typo).`;
 
   const humanPrompt = `Candidate: ${candidateName}
 Role applied for: ${roleAppliedFor}
 Total years experience: ${candidateTotalYears}
 Relevant years experience: ${candidateRelevantYears}
-Round: ${round}
+Role: ${schema.displayName} (${schema.roleId})
 
 Transcript (audio + chat, interleaved chronologically):
 ---
@@ -139,8 +149,6 @@ Now fill out the probe form.`;
           new SystemMessage(systemPrompt),
           new HumanMessage(humanPrompt),
         ]);
-        // jsonMode does NOT enforce shape at the API layer — validate
-        // ourselves so a malformed shape triggers the fallback.
         result = FilledProbeFormSchema.parse(result);
       } catch {
         const raw = await model.invoke([
@@ -154,15 +162,15 @@ Now fill out the probe form.`;
         result = FilledProbeFormSchema.parse(JSON.parse(jsonMatch[0]));
       }
 
-      // Override with authoritative candidate metadata
+      // Override with authoritative metadata
       const parsed = result as FilledProbeForm;
-      parsed.round = round;
+      parsed.roleId = schema.roleId;
       parsed.header.candidateName   = candidateName;
       parsed.header.interviewedFor  = roleAppliedFor;
       parsed.header.totalYears      = candidateTotalYears;
       parsed.header.relevantYears   = candidateRelevantYears;
       parsed.header.evaluationDate  = format(new Date(), "MM/dd/yyyy");
-      parsed.header.interviewerName = "Interviewly Bot";
+      parsed.header.interviewerName = "Medha";
       parsed.header.interviewerOid  = "AI-001";
 
       return FilledProbeFormSchema.parse(parsed) as FilledProbeForm;

@@ -1,5 +1,5 @@
 // ============================================================
-// Interviewly — canonical TypeScript types
+// Medha — canonical TypeScript types
 // Source of truth for all shapes across client + server.
 // ============================================================
 
@@ -9,7 +9,9 @@ import { z } from "zod";
 // 1. Top-level interview state
 // ------------------------------------------------------------
 
-export type InterviewRound = "Core" | "React";
+// Sub-Phase C: `InterviewRound` was removed in favour of a `roleId: string`
+// that keys into the role registry at src/lib/probeform/registry.ts. Adding
+// a new role no longer requires changing any types.
 
 export type InterviewOutcome =
   | "Selected"
@@ -44,7 +46,8 @@ export interface InterviewMetadata {
   candidateTotalYears: number;
   candidateRelevantYears: number;
   roleAppliedFor: string;
-  round: InterviewRound;
+  /** Lowercase role identifier keying into the role registry (e.g. "react"). */
+  roleId: string;
   jdText?: string;
   chosenExerciseId?: string;
 
@@ -60,6 +63,15 @@ export interface InterviewMetadata {
   transcript?: TranscriptSegment[];
   filledForm?: FilledProbeForm;
   probeFormFilePath?: string;
+
+  // Sub-Phase E: origin tracking for the n8n handoff. "n8n" interviews
+  // come in through /api/schedule-interview; "manual" through the
+  // /interviews/new form. interviewerEmail is carried for downstream
+  // notification flows; welcomePostedAt enables the post-welcome button's
+  // idempotency check.
+  source: "n8n" | "manual";
+  interviewerEmail?: string;
+  welcomePostedAt?: string;
 }
 
 // ------------------------------------------------------------
@@ -77,7 +89,7 @@ export interface PlannedQuestion {
 }
 
 export interface QuestionPlan {
-  round: InterviewRound;
+  roleId: string;
   generatedAt: string;
   modelProvider: string;
   modelId: string;
@@ -124,7 +136,7 @@ export interface CompetencyEvaluation {
 }
 
 export interface FilledProbeForm {
-  round: InterviewRound;
+  roleId: string;
 
   header: {
     candidateName: string;
@@ -171,7 +183,8 @@ export interface CreateInterviewRequest {
   candidateTotalYears: number;
   candidateRelevantYears: number;
   roleAppliedFor: string;
-  round: InterviewRound;
+  /** Lowercase role identifier from the role registry (e.g. "react"). */
+  roleId: string;
   jdText?: string;
   chosenExerciseId?: string;
   meetingTopic: string;
@@ -225,6 +238,11 @@ export type ScheduleInterviewResponse =
       chatId: string;
       scheduledFor: string;
       calendarEventId: string;
+      // Sub-Phase E: n8n consumes these so the interviewer email can
+      // include "Open in Medha" alongside "Join Teams Meeting".
+      dashboardUrl: string;
+      liveUrl: string;
+      resultUrl: string;
     }
   | { ok: false; error: string };
 
@@ -237,7 +255,7 @@ export const CreateInterviewRequestSchema = z.object({
   candidateTotalYears: z.number().min(0).max(50),
   candidateRelevantYears: z.number().min(0).max(50),
   roleAppliedFor: z.string().min(1),
-  round: z.enum(["Core", "React"]),
+  roleId: z.string().min(1),
   jdText: z.string().optional(),
   chosenExerciseId: z.string().optional(),
   meetingTopic: z.string().min(1),
@@ -278,7 +296,7 @@ export const PlannedQuestionSchema = z.object({
 });
 
 export const QuestionPlanSchema = z.object({
-  round: z.enum(["Core", "React"]),
+  roleId: z.string().min(1),
   questions: z.array(PlannedQuestionSchema),
 });
 
@@ -309,7 +327,7 @@ export const CompetencyEvaluationSchema = z.object({
 });
 
 export const FilledProbeFormSchema = z.object({
-  round: z.enum(["Core", "React"]),
+  roleId: z.string().min(1),
   header: z.object({
     candidateName: z.string(),
     totalYears: z.number(),

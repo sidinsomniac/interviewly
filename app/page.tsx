@@ -7,7 +7,7 @@ export default function Home() {
         <div className="mb-4 inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 ring-1 ring-blue-200">
           AI-powered interviewing
         </div>
-        <h1 className="text-5xl font-bold tracking-tight text-gray-900 mb-4">Interviewly</h1>
+        <h1 className="text-5xl font-bold tracking-tight text-gray-400 mb-4">Medha</h1>
         <p className="text-xl text-gray-500 mb-10">
           AI-driven Microsoft Teams interviewer that generates PS probe forms automatically — so you can focus on the conversation.
         </p>

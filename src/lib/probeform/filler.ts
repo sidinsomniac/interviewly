@@ -1,46 +1,57 @@
 import ExcelJS from "exceljs";
 import path from "path";
-import type { InterviewRound, FilledProbeForm, ProbeFormMeta } from "@/types/index";
-import { HEADER_CELLS, ROUND_SHEET_NAMES, CELL_MAP_BY_ROUND } from "@/lib/probeform/template";
+import type { FilledProbeForm, ProbeFormMeta } from "@/types/index";
+import type { RoleSchema } from "@/lib/probeform/types";
 
-export async function loadTemplate(): Promise<ExcelJS.Workbook> {
+/**
+ * Load an Excel template from a path relative to the project root.
+ * In Sub-Phase C this path comes from `schema.excelTemplate` so each
+ * role drops its own template under `data/templates/`.
+ */
+export async function loadTemplate(templatePath: string): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
-  const templatePath = path.resolve(process.cwd(), "data/samples/Probe_Form_sample.xlsx");
-  await wb.xlsx.readFile(templatePath);
+  await wb.xlsx.readFile(path.resolve(process.cwd(), templatePath));
   return wb;
 }
 
-export function fillRound(wb: ExcelJS.Workbook, round: InterviewRound, form: FilledProbeForm): void {
-  const sheetName = ROUND_SHEET_NAMES[round];
-  const ws = wb.getWorksheet(sheetName);
-  if (!ws) throw new Error(`Worksheet "${sheetName}" not found in template`);
+/**
+ * Fill a probe-form workbook from a role schema. Replaces the previous
+ * `fillRound(wb, round, form)` — instead of indexing into globals keyed
+ * by round, the schema carries its own header cells and per-row cell
+ * positions (column F for proficiency, column G for feedback).
+ */
+export function fillProbeForm(
+  wb: ExcelJS.Workbook,
+  schema: RoleSchema,
+  form: FilledProbeForm
+): void {
+  const ws = wb.getWorksheet(schema.sheetName);
+  if (!ws) {
+    throw new Error(
+      `Worksheet "${schema.sheetName}" not found in template ${schema.excelTemplate} ` +
+        `(role: ${schema.roleId}). Did the template get renamed?`
+    );
+  }
 
-  const h = form.header;
+  // Header: walk the schema's HeaderFieldDef list and pull values off
+  // form.header by field name. Skip absent optional fields silently;
+  // required fields are checked by the upstream Zod schema.
+  const h = form.header as unknown as Record<string, string | number | undefined>;
+  for (const hf of schema.header) {
+    const value = h[hf.field];
+    if (value === undefined || value === null || value === "") continue;
+    ws.getCell(hf.cell).value = value;
+  }
 
-  // Write header fields — only set value, never touch formulas
-  ws.getCell(HEADER_CELLS.candidateName).value         = h.candidateName;
-  ws.getCell(HEADER_CELLS.totalYears).value            = h.totalYears;
-  ws.getCell(HEADER_CELLS.relevantYears).value         = h.relevantYears;
-  ws.getCell(HEADER_CELLS.interviewedFor).value        = h.interviewedFor;
-  ws.getCell(HEADER_CELLS.evaluationDate).value        = h.evaluationDate;
-  ws.getCell(HEADER_CELLS.interviewerName).value       = h.interviewerName;
-  ws.getCell(HEADER_CELLS.interviewerOid).value        = h.interviewerOid;
-  ws.getCell(HEADER_CELLS.interviewOutcome).value      = h.interviewOutcome;
-  ws.getCell(HEADER_CELLS.domainFeedbackSummary).value = h.domainFeedbackSummary;
-
-  if (h.selectedForLevel)        ws.getCell(HEADER_CELLS.selectedForLevel).value        = h.selectedForLevel;
-  if (h.rejectionReason)         ws.getCell(HEADER_CELLS.rejectionReason).value         = h.rejectionReason;
-  if (h.sectionsToBeTrainedOn)   ws.getCell(HEADER_CELLS.sectionsToBeTrainedOn).value   = h.sectionsToBeTrainedOn;
-  if (h.teachableSkillGapDetails)ws.getCell(HEADER_CELLS.teachableSkillGapDetails).value = h.teachableSkillGapDetails;
-  if (h.handsOnExerciseId)       ws.getCell(HEADER_CELLS.handsOnExerciseId).value       = h.handsOnExerciseId;
-
-  // Write competency rows
-  const cellMap = CELL_MAP_BY_ROUND[round];
-  for (const comp of form.competencies) {
-    const cells = cellMap[comp.rowIndex];
-    if (!cells) continue;
-    ws.getCell(cells.proficiencyCell).value = comp.proficiency;
-    ws.getCell(cells.feedbackCell).value    = comp.feedbackDetails || "-";
+  // Competency rows: walk the schema's categories and write F{row}/G{row}.
+  const evalByRow = new Map(form.competencies.map((c) => [c.rowIndex, c]));
+  for (const cat of schema.categories) {
+    for (const row of cat.rows) {
+      const ev = evalByRow.get(row.rowIndex);
+      if (!ev) continue; // Row not evaluated — leave the template's blank/default
+      ws.getCell(`F${row.rowIndex}`).value = ev.proficiency;
+      ws.getCell(`G${row.rowIndex}`).value = ev.feedbackDetails || "-";
+    }
   }
 }
 
