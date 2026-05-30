@@ -6,6 +6,7 @@ import { createTeamsMeeting } from "@/lib/graph/calendar";
 import { store } from "@/lib/store";
 import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
+import { scheduleAutoStart } from "@/lib/interviewScheduler";
 
 export async function POST(req: NextRequest) {
   try {
@@ -86,9 +87,18 @@ export async function POST(req: NextRequest) {
       source: "n8n",
       interviewerEmail: data.interviewerEmail,
       conductMode: data.conductMode,
+      // Phase J — persist scheduledFor so restoreSchedules can re-arm
+      // across `pnpm dev` restarts.
+      scheduledFor,
     });
 
     log.info({ interviewId: interview.id, meetingId: meeting.onlineMeetingId }, "Interview scheduled");
+
+    // Phase J — arm the server-side auto-start for Mode B at scheduledFor.
+    // Mode A skips this: recruiter still drives Post Welcome → Start Auto-Conduct.
+    if (interview.conductMode === "auto" && interview.scheduledFor) {
+      scheduleAutoStart(interview.id, interview.scheduledFor);
+    }
 
     // Sub-Phase E: hand back dashboard/live/result URLs so the n8n
     // workflow's interviewer email can embed "Open in Medha" CTAs.

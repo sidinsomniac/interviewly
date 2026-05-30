@@ -12,6 +12,20 @@ if (process.env.NODE_ENV !== "production") {
   globalForStore.__interviewlyInterviews = interviews;
 }
 
+// Phase J — re-arm scheduled auto-starts after load. Dynamic import breaks
+// the store ↔ scheduler cycle (scheduler imports store.list()). Fires once
+// per process start; idempotent on re-evaluation in dev because the
+// scheduler's own timer map is globalThis-pinned.
+const globalForStoreInit = globalThis as unknown as { __medhaSchedulerRestored?: boolean };
+if (!globalForStoreInit.__medhaSchedulerRestored) {
+  globalForStoreInit.__medhaSchedulerRestored = true;
+  import("@/lib/interviewScheduler")
+    .then((m) => m.restoreSchedules())
+    .catch((err) => {
+      console.warn("store: restoreSchedules failed", err);
+    });
+}
+
 export const store = {
   create(data: Omit<InterviewMetadata, "id" | "createdAt" | "updatedAt">): InterviewMetadata {
     const now = new Date().toISOString();
@@ -28,6 +42,17 @@ export const store = {
 
   get(id: string): InterviewMetadata | undefined {
     return interviews.get(id);
+  },
+
+  /**
+   * Phase J fix — sync the in-memory map with a fresher copy that came
+   * from disk (or any external source). DOES NOT call persistInterviews —
+   * the caller already knows the disk copy is the source; round-tripping
+   * would create a write cycle with the merge logic in persist.ts. Used
+   * by GET /api/interviews/[id] when the in-memory copy looks stuck.
+   */
+  set(id: string, iv: InterviewMetadata): void {
+    interviews.set(id, iv);
   },
 
   update(id: string, patch: Partial<InterviewMetadata>): InterviewMetadata | undefined {

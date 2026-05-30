@@ -1,14 +1,35 @@
 import { getAppClient } from "@/lib/graph/client";
+import { log } from "@/lib/logger";
 import type { TranscriptSegment } from "@/types/index";
 
-let _organizerGuid: string | null = null;
+/**
+ * Per-email AAD GUID cache. Keyed lowercased so callers don't have to
+ * normalize. Replaces a previous single-cell cache that ignored the
+ * `email` parameter — that bug silently collapsed botUserGuid and
+ * organizerGuid to whichever email arrived first and broke the
+ * conductor's sender filter (Mode B burst-advance, 2026-05-30).
+ */
+const _guidCache = new Map<string, string>();
 
+/**
+ * Resolve an email to its AAD object id via Graph /users/{email}.
+ * Uses application credentials (getAppClient) so it can resolve any
+ * user in the tenant, not only the token's own identity. Throws on
+ * lookup failure so wrong-resolutions never silently propagate.
+ */
 export async function resolveOrganizerGuid(email: string): Promise<string> {
-  if (_organizerGuid) return _organizerGuid;
+  const key = email.toLowerCase();
+  const cached = _guidCache.get(key);
+  if (cached) return cached;
   const client = await getAppClient();
   const user = await client.api(`/users/${email}`).get();
-  _organizerGuid = user.id as string;
-  return _organizerGuid;
+  const guid = user?.id as string | undefined;
+  if (!guid) {
+    throw new Error(`resolveOrganizerGuid: Graph returned no id for ${email}`);
+  }
+  _guidCache.set(key, guid);
+  log.info({ email, guid }, "resolveOrganizerGuid: resolved");
+  return guid;
 }
 
 export async function listTranscripts(

@@ -354,6 +354,32 @@ export function QuestionList({
                     awaiting candidate
                   </span>
                 )}
+                {/* Phase K — per-question difficulty + budget. Only shown
+                    on the active question to keep the dashboard quiet. */}
+                {isCurrentInAuto && q.difficulty && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      q.difficulty === "easy"
+                        ? "bg-green-50 text-green-700"
+                        : q.difficulty === "medium"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-rose-50 text-rose-700"
+                    }`}
+                    title={`Budget: ${q.expectedDurationSec ?? "?"}s`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        q.difficulty === "easy"
+                          ? "bg-green-500"
+                          : q.difficulty === "medium"
+                            ? "bg-amber-500"
+                            : "bg-rose-500"
+                      }`}
+                    />
+                    {q.difficulty}
+                    {q.expectedDurationSec ? ` · ${Math.round(q.expectedDurationSec / 60)}m` : ""}
+                  </span>
+                )}
               </div>
               <p className={`text-sm leading-relaxed ${isPosted ? "text-gray-400" : "text-gray-700"}`}>
                 {q.questionText}

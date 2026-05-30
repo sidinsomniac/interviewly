@@ -79,6 +79,16 @@ async function buildContext(opts: Required<AutoConductOpts>): Promise<ConductorC
     log.info("autoConductor: TEST_MODE — skipping bot/organizer GUID resolution");
     return { opts, botUserGuid: "TEST_MODE", organizerGuid: "TEST_MODE" };
   }
+  // Sanity check: the env vars MUST point at different identities. The
+  // bot-self filter and organizer filter both depend on these being distinct
+  // GUIDs. If they're the same email, the GUIDs would collide and the
+  // sender filter would silently let through messages it should block.
+  if (config.ms.botUserEmail.toLowerCase() === config.ms.organizerEmail.toLowerCase()) {
+    throw new Error(
+      "MS_BOT_USER_EMAIL and MS_ORGANIZER_EMAIL must be different — " +
+      "the bot user and the recruiter cannot share an identity"
+    );
+  }
   const [botUserGuid, organizerGuid] = await Promise.all([
     resolveOrganizerGuid(config.ms.botUserEmail),
     resolveOrganizerGuid(config.ms.organizerEmail),
@@ -107,6 +117,13 @@ export async function startAutoConduct(
   };
   const ctx = await buildContext(opts);
   contexts.set(interviewId, ctx);
+  // Permanent diagnostic — empty / mismatched GUIDs here are the most
+  // common cause of "the bot-filter let a message through" surprises.
+  // Visible at startup means we can rule it in/out in one glance.
+  log.info(
+    { interviewId, botUserGuid: ctx.botUserGuid, organizerGuid: ctx.organizerGuid, opts },
+    "autoConductor: started"
+  );
 
   // Recursive setTimeout — avoids overlapping ticks if a Graph call is
   // slow. Each tick schedules the next at the end of its work.
@@ -122,7 +139,6 @@ export async function startAutoConduct(
   // Insert a sentinel so isAutoConductRunning returns true between
   // schedule cycles.
   timers.set(interviewId, setTimeout(() => {}, 0));
-  log.info({ interviewId, opts }, "autoConductor: started");
   scheduleNext();
 }
 
@@ -273,6 +289,19 @@ async function tick(interviewId: string): Promise<void> {
       return;
     }
 
+    // Permanent diagnostic — prints the per-tick state so we can read off
+    // the terminal exactly what the conductor sees. Indispensable for
+    // diagnosing future "why did it advance?" mysteries.
+    log.info(
+      {
+        interviewId,
+        awaitingConsent: ac.awaitingConsent ?? false,
+        currentQuestionIndex: ac.currentQuestionIndex,
+        lastSeenChatMessageId: ac.lastSeenChatMessageId ?? null,
+      },
+      "autoConductor: tick"
+    );
+
     // Phase H — Mode B consent gate. Short-circuits BOTH the timeout path
     // and the keyword path until the candidate types /\bi\s+agree\b/i in
     // chat. Scanning logic mirrors the keyword loop below (same chat fetch,
@@ -305,6 +334,11 @@ async function tick(interviewId: string): Promise<void> {
           ? stripHtml(msg.body.content ?? "")
           : (msg.body?.content ?? "").trim();
         if (!text) continue;
+        // Belt-and-braces: skip the consent message by content prefix even
+        // if the sender filter ever misses it. The consent template's
+        // stripped text starts with "Hi! I'm Medha" (see MEDHA_CONSENT_CHAT_HTML);
+        // no real candidate utterance starts with that phrase. Cheap O(prefix).
+        if (text.startsWith("Hi! I'm Medha")) continue;
         // Word-boundary "I agree" — case-insensitive, tolerant of trailing
         // punctuation ("I agree.") and surrounding text ("yes I agree to
         // proceed"). Excludes "disagree" and "i'm agreeable".
@@ -364,10 +398,38 @@ async function tick(interviewId: string): Promise<void> {
     for (const msg of newMessages) {
       lastSeenId = msg.id;
       const fromId = msg.from?.user?.id;
-      if (fromId === ctx.botUserGuid || fromId === ctx.organizerGuid) continue;
       const text = msg.body?.contentType === "html"
         ? stripHtml(msg.body.content ?? "")
         : (msg.body?.content ?? "").trim();
+
+      // Phase J diagnostic — fires once per scanned message. Lets us see
+      // whether the bot/organizer filter, the text shape, or the regex is
+      // the gate that dropped a candidate's "Done". Keep permanent — the
+      // volume is bounded by ac.lastSeenChatMessageId persistence (we only
+      // scan NEW messages per 5s tick).
+      log.info(
+        {
+          interviewId,
+          msgId: msg.id,
+          fromId: fromId ?? "(no user id — guest?)",
+          fromDisplayName: msg.from?.user?.displayName ?? null,
+          fromAdditionalKeys: msg.from?.user
+            ? Object.keys((msg.from.user as unknown as Record<string, unknown>) ?? {})
+            : null,
+          textSample: text.slice(0, 80),
+          isBotFilter: fromId === ctx.botUserGuid,
+          isOrgFilter: fromId === ctx.organizerGuid,
+        },
+        "autoConductor: scanning chat message"
+      );
+
+      // Phase J reversal — drop the organizer half of the filter (was:
+      // `|| fromId === ctx.organizerGuid`). Same reasoning as the consent
+      // path: candidates joining as the organizer identity (or sharing it
+      // via AAD collision) must be able to advance with "Done". The earlier
+      // worry about recruiters accidentally typing "done" is mitigated by
+      // the Skip + Stop buttons in the dashboard.
+      if (fromId === ctx.botUserGuid) continue;
       if (!text) continue;
       const lower = text.toLowerCase();
       const matched = ctx.opts.triggerKeywords.some((kw) =>
@@ -426,16 +488,31 @@ async function advance(
 
   await postQuestionByIndex(interviewId, nextIndex);
 
+  // Phase K — derive the per-question deadline from the next question's
+  // own expectedDurationSec when available, falling back to the flat
+  // timeoutMs for legacy plans (pre-Phase-K).
+  const nextQuestion = interview.questionPlan?.questions[nextIndex];
+  const perQuestionMs =
+    nextQuestion?.expectedDurationSec != null
+      ? nextQuestion.expectedDurationSec * 1000
+      : timeoutMs;
+
   store.update(interviewId, {
     autoConduct: {
       ...interview.autoConduct,
       currentQuestionIndex: nextIndex,
-      nextQuestionDeadline: new Date(Date.now() + timeoutMs).toISOString(),
+      nextQuestionDeadline: new Date(Date.now() + perQuestionMs).toISOString(),
     },
   });
 
   log.info(
-    { interviewId, action: "advance", index: nextIndex, trigger },
+    {
+      interviewId,
+      action: "advance",
+      index: nextIndex,
+      trigger,
+      expectedDurationSec: nextQuestion?.expectedDurationSec ?? null,
+    },
     "autoConductor: advanced"
   );
 }

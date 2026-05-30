@@ -81,6 +81,14 @@ export interface InterviewMetadata {
    */
   conductMode: "manual" | "auto";
 
+  /**
+   * Phase J: ISO string of the interview's scheduled start time. Set by
+   * /api/schedule-interview (n8n flow); absent on manual /api/interviews
+   * creations. The interviewScheduler reads this to fire /auto-conduct/start
+   * automatically for Mode B at the scheduled moment.
+   */
+  scheduledFor?: string;
+
   // Scope X: chat-keyword Auto-Conductor state. When `active`, a server
   // timer polls the meeting chat and advances through questionPlan.questions
   // on keyword match or per-question timeout. See src/lib/autoConductor.ts.
@@ -146,6 +154,26 @@ export interface PlannedQuestion {
   followUpHints?: string[];
   isHandsOnExercise?: boolean;
   exerciseUrl?: string;
+  /**
+   * ISO timestamp the question was posted to chat (Phase J).
+   * Stamped by postQuestionByIndex and consumed by the
+   * transcript-mapping LLM prompt to window utterances per question.
+   */
+  postedAt?: string;
+  /**
+   * Phase K — per-question time budget. Drives the conductor's
+   * nextQuestionDeadline (replaces the flat DEFAULT_TIMEOUT_MS for plans
+   * that carry it). Bounded 60–900 sec by the Zod schema.
+   */
+  expectedDurationSec?: number;
+  /**
+   * Phase K — difficulty tier used by the planner to size budget and
+   * by the recruiter UI for at-a-glance pacing.
+   *   easy   ≈ 90–180s definitional / conceptual
+   *   medium ≈ 240–360s explanation w/ trade-offs / short code
+   *   hard   ≈ 480–900s system design / longer coding / multi-step
+   */
+  difficulty?: "easy" | "medium" | "hard";
 }
 
 export interface QuestionPlan {
@@ -154,6 +182,12 @@ export interface QuestionPlan {
   modelProvider: string;
   modelId: string;
   questions: PlannedQuestion[];
+  /**
+   * Phase K — plan-level total budget (sum of expectedDurationSec +
+   * ~10% recruiter buffer). Advisory: the conductor doesn't enforce it;
+   * present for the dashboard and future analytics.
+   */
+  totalBudgetSec?: number;
 }
 
 // ------------------------------------------------------------
@@ -359,11 +393,26 @@ export const PlannedQuestionSchema = z.object({
   // isHandsOnExercise is false, instead of omitting the key. Treat that
   // as equivalent to omission rather than failing the whole plan.
   exerciseUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  // Phase J — ISO timestamp the question was posted to chat. Stamped
+  // by postQuestionByIndex when the question fires; absent on freshly-
+  // generated plans before first post.
+  postedAt: z.string().optional(),
+  // Phase K — per-question time budget (60–900 sec). Optional so legacy
+  // plans without this field still parse. Conductor falls back to the
+  // flat DEFAULT_TIMEOUT_MS when absent.
+  expectedDurationSec: z.number().int().min(60).max(900).optional(),
+  // Phase K — difficulty tier. Optional for legacy plans. The planner
+  // biases distribution by candidate seniority.
+  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
 });
 
 export const QuestionPlanSchema = z.object({
   roleId: z.string().min(1),
   questions: z.array(PlannedQuestionSchema),
+  // Phase K — plan-level budget (sum + buffer). Optional so legacy plans
+  // still parse. We don't enforce the 2700s cap at the schema layer;
+  // logging a too-large value beats rejecting the whole plan.
+  totalBudgetSec: z.number().int().positive().optional(),
 });
 
 // Exact proficiency strings — trailing spaces and typo preserved verbatim.

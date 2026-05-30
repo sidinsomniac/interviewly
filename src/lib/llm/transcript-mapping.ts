@@ -64,6 +64,13 @@ export async function mapTranscriptToProbeForm(input: {
   const rowsJson = JSON.stringify(rows, null, 2);
   const questionsJson = JSON.stringify(questionPlan.questions, null, 2);
   const transcriptText = transcriptToText(transcript);
+  // Phase J — per-question timing windows. postedAt is stamped by
+  // postQuestionByIndex when each question fires in chat. Absent on
+  // legacy plans (pre-Phase-J) — we fall back to a placeholder that
+  // tells the LLM to use its best judgement for windowing.
+  const timingSection = questionPlan.questions
+    .map((q, i) => `Question ${i + 1} (rowIndex ${q.rowIndex}) posted at: ${q.postedAt ?? "(not stamped — use best judgement to window utterances)"}`)
+    .join("\n");
 
   // Category outline mirrors what generateQuestionPlan emits — helps the
   // LLM keep its mental model organized when there are 27+ rows.
@@ -95,6 +102,10 @@ Development rubric (used by other rows):
 
 3. If the conversation didn't touch a row's topic at all, choose "Did not probe" and write feedbackDetails: "-".
 
+4. **Use question timing to window the transcript.** Each question's posted timestamp is listed in the "Question timing" section below. The candidate's response to question N is the utterances in the transcript between T_n and T_{n+1} (or end of transcript for the last question). Use these windows to determine which utterances answer which question. If the window between T_n and T_{n+1} contains no candidate speech, the candidate did not answer question N — choose "Did not probe" for its competency row(s).
+
+5. **Off-topic answers don't score the asked competency.** If the candidate's response to a question does NOT address the topic of that question — for example, asked about useEffect but answered about Redux — score the QUESTION'S competency row as "Did not probe" or "No Experience", and write feedbackDetails as: "Candidate avoided the topic. Asked about X, discussed Y instead." Do NOT credit the off-topic content against the row that was actually asked. The off-topic competency (if it appears elsewhere in the rubric) MAY be credited separately based on the transcript content, but only with explicit feedback noting the candidate volunteered this rather than being asked.
+
 The probe form is organized into these categories:
 ${categoryOutline}
 
@@ -104,17 +115,20 @@ ${rowsJson}
 The interview's planned questions were:
 ${questionsJson}
 
+Question timing (use these to window transcript utterances per question):
+${timingSection}
+
 After scoring all rows:
 
-4. Write a domainFeedbackSummary — a 4–8 sentence narrative paragraph summarizing the interview. Mention 2–3 specific strengths and 2–3 specific weaknesses. This goes in cell D10 of the Excel.
+6. Write a domainFeedbackSummary — a 4–8 sentence narrative paragraph summarizing the interview. Mention 2–3 specific strengths and 2–3 specific weaknesses. This goes in cell D10 of the Excel.
 
-5. Choose an interviewOutcome — one of "Selected", "Rejected", or "Needs Another Round" — based on the rubric outcomes.
+7. Choose an interviewOutcome — one of "Selected", "Rejected", or "Needs Another Round" — based on the rubric outcomes.
 
-6. Suggest a selectedForLevel (Career Stage). Allowed: "Experience Engineer L1", "Experience Engineer L2", "Senior Experience Engineer", "Lead Experience Engineer", or "REJECTED".
+8. Suggest a selectedForLevel (Career Stage). Allowed: "Experience Engineer L1", "Experience Engineer L2", "Senior Experience Engineer", "Lead Experience Engineer", or "REJECTED".
 
-7. If outcome is "Rejected", provide a rejectionReason. Allowed: "Lacked Fundamentals", "No Hands on Experience", "Gaps in multiple categories".
+9. If outcome is "Rejected", provide a rejectionReason. Allowed: "Lacked Fundamentals", "No Hands on Experience", "Gaps in multiple categories".
 
-8. Optionally fill sectionsToBeTrainedOn and teachableSkillGapDetails to indicate growth areas.
+10. Optionally fill sectionsToBeTrainedOn and teachableSkillGapDetails to indicate growth areas.
 
 Be fair, evidence-anchored, and rigorous. Use the full range of the proficiency scale. Do NOT over-rate weak candidates to be nice.
 

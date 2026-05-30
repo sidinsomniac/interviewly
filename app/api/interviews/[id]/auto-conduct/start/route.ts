@@ -25,6 +25,10 @@ const StartBodySchema = z.object({
   pollIntervalMs: z.number().int().positive().optional(),
 });
 
+// Phase K — legacy fallback only. New plans drive per-question pacing via
+// PlannedQuestion.expectedDurationSec (see autoConductor.advance). This
+// flat 8-min default only matters for plans generated before Phase K that
+// lack the per-question field.
 const DEFAULT_TIMEOUT_MS = 8 * 60_000;
 const DEFAULT_KEYWORDS = ["done", "next", "ready"];
 const DEFAULT_POLL_MS = 5_000;
@@ -88,6 +92,15 @@ export async function POST(
   }
 
   const now = new Date();
+  const isAutoMode = interview.conductMode === "auto";
+  // Critical: Mode B seeds awaitingConsent: true HERE, before startAutoConduct
+  // arms the 5s timer. Otherwise the conductor's first tick can fire while
+  // bot/join + 8s wait + /speak + consent post are still in flight (10–25s
+  // total), taking the keyword path and potentially matching "Done"/"next"
+  // inside the bot's own about-to-be-posted consent message. With the gate
+  // set on tick #1, the conductor short-circuits the keyword path until
+  // the candidate actually says "I agree". Mode A omits the field — falsy —
+  // so its keyword loop runs untouched.
   const updated = store.update(id, {
     autoConduct: {
       active: true,
@@ -97,8 +110,15 @@ export async function POST(
       lastSeenChatMessageId,
       perQuestionTimeoutMs: timeoutMs,
       triggerKeywords: keywords,
+      ...(isAutoMode ? { awaitingConsent: true } : {}),
     },
   });
+  if (isAutoMode) {
+    log.info(
+      { interviewId: id },
+      "auto-conduct/start: Mode B — awaitingConsent gate set BEFORE timer arms"
+    );
+  }
 
   if (isAutoConductRunning(id)) {
     log.warn({ interviewId: id }, "auto-conduct/start: timer already running — reusing");
@@ -180,12 +200,11 @@ export async function POST(
     );
   }
 
-  // Phase H — Mode B intro + consent gate. Only runs for auto interviews
-  // when the bot is actually in the call (botJoinSucceeded). Both the TTS
-  // speak call and the chat post are best-effort: a failure log.warns but
-  // we still flip awaitingConsent=true so the conductor waits for "I agree".
-  // Sid can manually retry by posting from the dashboard.
-  let modeBPatched = updated;
+  // Phase H — Mode B intro + consent. Only runs for auto interviews
+  // when the bot is actually in the call (botJoinSucceeded). The
+  // awaitingConsent gate is already set above (BEFORE the conductor's
+  // timer was armed), so the conductor is safely holding while this
+  // block runs leisurely. Both /speak and sendChatMessage are best-effort.
   if (interview.conductMode === "auto" && botJoinSucceeded) {
     // Give the bot's call enough time to transition Establishing → Established
     // before /speak. The bot's SpeakAsync 404s with "no active call" if invoked
@@ -232,6 +251,33 @@ export async function POST(
       try {
         await sendChatMessage(interview.chatId, MEDHA_CONSENT_CHAT_HTML);
         log.info({ interviewId: id }, "auto-conduct/start: Mode B consent message posted");
+
+        // Belt-and-braces: re-seed lastSeenChatMessageId to the newest
+        // message (which is now the consent post itself). The conductor's
+        // bot-sender filter SHOULD already exclude it; this is a second
+        // line of defense in case GUID resolution is wonky. Same helper
+        // the start-seed used.
+        try {
+          const recent = await fetchChatMessagesSince(interview.chatId);
+          const newSeen = recent.length > 0 ? recent[recent.length - 1].id : undefined;
+          if (newSeen) {
+            const fresh = store.get(id);
+            if (fresh?.autoConduct) {
+              store.update(id, {
+                autoConduct: { ...fresh.autoConduct, lastSeenChatMessageId: newSeen },
+              });
+              log.info(
+                { interviewId: id, lastSeenChatMessageId: newSeen },
+                "auto-conduct/start: Mode B re-seeded lastSeenChatMessageId after consent post"
+              );
+            }
+          }
+        } catch (err) {
+          log.warn(
+            { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+            "auto-conduct/start: Mode B re-seed fetch failed (non-fatal — gate still set)"
+          );
+        }
       } catch (err) {
         log.warn(
           { interviewId: id, err: err instanceof Error ? err.message : String(err) },
@@ -240,31 +286,11 @@ export async function POST(
       }
     }
 
-    // 3) Flip the awaitingConsent gate. The conductor's poll tick will now
-    // short-circuit keyword + timeout advances until the candidate types
-    // /\bi\s+agree\b/i in chat (see src/lib/autoConductor.ts).
-    modeBPatched = store.update(id, {
-      autoConduct: {
-        ...(updated?.autoConduct ?? {
-          // belt-and-braces: should always be set by the store.update above,
-          // but if it isn't (theoretical race), reconstruct from defaults so
-          // the shape is valid.
-          active: true,
-          startedAt: now.toISOString(),
-          currentQuestionIndex: -1,
-          nextQuestionDeadline: new Date(now.getTime() + timeoutMs).toISOString(),
-          perQuestionTimeoutMs: timeoutMs,
-          triggerKeywords: keywords,
-        }),
-        awaitingConsent: true,
-      },
-    });
-
     log.info(
       { interviewId: id },
       "auto-conduct/start: Mode B intro spoken + consent posted, awaiting 'I agree'"
     );
   }
 
-  return NextResponse.json({ ok: true, autoConduct: modeBPatched?.autoConduct });
+  return NextResponse.json({ ok: true, autoConduct: store.get(id)?.autoConduct });
 }

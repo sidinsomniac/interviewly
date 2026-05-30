@@ -30,6 +30,7 @@ import { loadTemplate, fillProbeForm, addMetaSheet, toBuffer } from "@/lib/probe
 import { getRoleSchema } from "@/lib/probeform/registry";
 import { loadFixtureBundle } from "@/lib/fixtures";
 import { stopAutoConduct } from "@/lib/autoConductor";
+import { cancelScheduledStart } from "@/lib/interviewScheduler";
 import type { TranscriptSegment } from "@/types/index";
 
 function sleep(ms: number) {
@@ -64,6 +65,10 @@ export async function endInterview(
     );
     return { found: true, alreadyEnded: true };
   }
+  // Phase J — cancel any pending scheduled auto-start (idempotent no-op
+  // if none was scheduled). Recruiter manually ending an interview before
+  // its scheduledFor time must not have the conductor fire afterwards.
+  cancelScheduledStart(id);
   store.update(id, { status: "ended" });
   void finalize(id); // fire-and-forget — caller returns immediately
   return { found: true, alreadyEnded: false };
@@ -166,7 +171,10 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
       // ── Real Graph path ──────────────────────────────────
       const organizerGuid = interview.organizerGuid
         ?? await resolveOrganizerGuid(config.ms.organizerEmail);
-      const delays = [5, 10, 20, 40, 80, 120];
+      // Phase J — reduced 6-poll/5-min backoff to 3-poll/35-sec.
+      // Recruiters often forget to enable Teams transcription; we degrade
+      // to liveTranscript+chat rather than blocking finalize for 5 minutes.
+      const delays = [5, 10, 20];
       let transcripts: Array<{ id: string }> = [];
 
       for (const delaySec of delays) {
@@ -177,12 +185,16 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
       }
 
       if (transcripts.length === 0) {
-        throw new Error("Transcript not available after 5 minutes of polling. Use manual upload.");
+        log.warn(
+          { interviewId: id },
+          "end-interview: Teams VTT unavailable after 35s — continuing with liveTranscript + chat only"
+        );
+        // vttSegments stays []; we keep going.
+      } else {
+        vttRaw = await fetchTranscriptVtt(organizerGuid, interview.meetingId!, transcripts[0].id);
+        vttSegments = parseVtt(vttRaw);
+        log.info({ interviewId: id, segmentCount: vttSegments.length }, "VTT parsed");
       }
-
-      vttRaw = await fetchTranscriptVtt(organizerGuid, interview.meetingId!, transcripts[0].id);
-      vttSegments = parseVtt(vttRaw);
-      log.info({ interviewId: id, segmentCount: vttSegments.length }, "VTT parsed");
     }
 
     // Chat history: fixtures already populated `chatSegments` above; in
@@ -191,10 +203,32 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
     if (!config.app.testMode || injectedVttSegments) {
       chatSegments = await fetchChatMessages(interview.chatId!);
     }
-    const transcript = mergeTranscriptSources(vttSegments, chatSegments);
+
+    // Phase J — also consume the bot's STT stream collected via
+    // /live-transcript. Each chunk has { speaker, text, timestamp, isFinal };
+    // /live-transcript only persists finals so we don't need to filter.
+    // Estimate endTime at +3s (typical utterance duration — used only for
+    // sort stability; merge sorts on startTime).
+    const liveSegments: TranscriptSegment[] = (interview.liveTranscript ?? []).map((c) => ({
+      speaker: c.speaker,
+      startTime: c.timestamp,
+      endTime: new Date(Date.parse(c.timestamp) + 3000).toISOString(),
+      text: c.text,
+    }));
+
+    const merged = mergeTranscriptSources(vttSegments, chatSegments, liveSegments);
+    const transcript = dedupeNearDuplicates(merged);
     log.info(
-      { interviewId: id, totalSegments: transcript.length, testMode: !!fixtureMeta },
-      "Transcript merged"
+      {
+        interviewId: id,
+        vttCount: vttSegments.length,
+        liveCount: liveSegments.length,
+        chatCount: chatSegments.length,
+        mergedCount: merged.length,
+        dedupedCount: transcript.length,
+        testMode: !!fixtureMeta,
+      },
+      "Transcript assembled"
     );
 
     const filledForm = await mapTranscriptToProbeForm({
@@ -251,4 +285,43 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
     log.error({ interviewId: id, err: errorMessage }, "Finalize failed");
     store.update(id, { status: "failed", errorMessage });
   }
+}
+
+// ── Phase J — near-duplicate dedup ───────────────────────────────────────
+//
+// VTT (Teams transcription) and liveTranscript (bot's Azure STT) cover the
+// same audio. When both are populated, the merge produces near-duplicate
+// pairs. Catch them with a simple two-pass:
+//   1. Time window: pairs whose startTime is within 2 sec.
+//   2. Content: word-overlap ratio ≥ 0.8 (Jaccard-like, simpler).
+// Keep the longer text (Teams' VTT often includes filler words STT drops).
+// Word-overlap is cheap and resilient to minor word swaps; not perfect but
+// fine for the demo. LLM tolerates a few residual dupes anyway.
+
+function dedupeNearDuplicates(segments: TranscriptSegment[]): TranscriptSegment[] {
+  const out: TranscriptSegment[] = [];
+  for (const s of segments) {
+    const dupIdx = out.findIndex((p) => {
+      const dt = Math.abs(Date.parse(s.startTime) - Date.parse(p.startTime));
+      if (isNaN(dt) || dt > 2000) return false; // > 2s apart, not a dup
+      return wordOverlap(s.text, p.text) >= 0.8;
+    });
+    if (dupIdx < 0) {
+      out.push(s);
+    } else if (s.text.length > out[dupIdx].text.length) {
+      // Replace the shorter version with the longer (more complete) one.
+      out[dupIdx] = s;
+    }
+  }
+  return out;
+}
+
+function wordOverlap(a: string, b: string): number {
+  const norm = (s: string) => new Set(s.toLowerCase().match(/\w+/g) ?? []);
+  const A = norm(a);
+  const B = norm(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const w of A) if (B.has(w)) inter++;
+  return inter / Math.min(A.size, B.size);
 }

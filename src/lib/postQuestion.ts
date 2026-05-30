@@ -64,9 +64,19 @@ export async function postQuestionByIndex(
   }
 
   const postedAt = new Date().toISOString();
+  // Phase J — also stamp postedAt on the question itself. Used by the
+  // probe-form LLM (transcript-mapping.ts) to window transcript utterances
+  // per question. Mutates via a copy because store snapshots may be
+  // referenced elsewhere.
   store.update(interviewId, {
     postedQuestionIndices: [...interview.postedQuestionIndices, question.rowIndex],
     status: "in_progress",
+    questionPlan: {
+      ...interview.questionPlan!,
+      questions: interview.questionPlan!.questions.map((q, i) =>
+        i === arrayIndex ? { ...q, postedAt } : q
+      ),
+    },
   });
 
   // Phase I — Mode B: also speak the question through the bot. Fire-and-forget

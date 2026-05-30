@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { InterviewMetadata } from "@/types/index";
 import { getRoleSchema } from "@/lib/probeform/registry";
 import { QuestionList } from "@/components/QuestionList";
@@ -14,6 +15,7 @@ const TEST_MODE = process.env.NEXT_PUBLIC_MEDHA_TEST_MODE === "true";
 
 export function LiveDashboard({ interview: initial }: { interview: InterviewMetadata }) {
   const [interview, setInterview] = useState(initial);
+  const router = useRouter();
 
   async function refresh() {
     const res = await fetch(`/api/interviews/${initial.id}`);
@@ -21,8 +23,44 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
     if (data.ok) setInterview(data.interview);
   }
 
+  // Phase I — once finalize completes, jump the recruiter straight to the
+  // result page. The "ended" overlay below softens the wait between hangup
+  // and "completed" (probe form generation can take several seconds on a
+  // real meeting). useEffect dep on status ensures the navigation fires
+  // exactly once.
+  //
+  // Phase J fix — inclusive readiness check. The status field may not
+  // flip from "ended" to "completed" in the on-disk JSON when multi-process
+  // dev workers race on the persist file. probeFormFilePath / filledForm
+  // are equally reliable signals that finalize completed successfully.
+  useEffect(() => {
+    const ready =
+      interview.status === "completed" ||
+      !!interview.probeFormFilePath ||
+      !!interview.filledForm?.header?.candidateName;
+    if (ready) {
+      router.replace(`/interviews/${interview.id}/result`);
+    }
+  }, [
+    interview.status,
+    interview.probeFormFilePath,
+    interview.filledForm,
+    interview.id,
+    router,
+  ]);
+
   return (
-    <div className="flex flex-col h-screen">
+    <div className="relative flex flex-col h-screen">
+      {interview.status === "ended" && (
+        <div
+          role="status"
+          className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/95 backdrop-blur-sm"
+        >
+          <div className="text-3xl mb-3">📝</div>
+          <p className="text-sm font-medium text-gray-900">Interview ended</p>
+          <p className="text-xs text-gray-500 mt-1">Generating probe form…</p>
+        </div>
+      )}
       {TEST_MODE && (
         <div
           role="status"

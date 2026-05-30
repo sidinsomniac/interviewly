@@ -11,6 +11,7 @@ import { config } from "@/lib/config";
 // strictly, the prompt has to carry the shape itself.
 const QUESTION_PLAN_SHAPE = `{
   "roleId": "<the roleId string passed below>",
+  "totalBudgetSec": <integer — sum of expectedDurationSec + ~10% recruiter buffer, target ~2400, hard cap 2700>,
   "questions": [
     {
       "rowIndex": <integer matching one of the rowIndex values listed above>,
@@ -19,7 +20,9 @@ const QUESTION_PLAN_SHAPE = `{
       "questionText": "<the question, >=10 chars, open-ended>",
       "followUpHints": ["<optional follow-up>", "..."],
       "isHandsOnExercise": true | false,
-      "exerciseUrl": "<https url, only when isHandsOnExercise=true>"
+      "exerciseUrl": "<https url, only when isHandsOnExercise=true>",
+      "expectedDurationSec": <integer 60–900>,
+      "difficulty": "easy" | "medium" | "hard"
     }
   ]
 }`;
@@ -61,7 +64,24 @@ ${rowsJson}
 
 Match each row's rubricType (architecture or development) when generating questions — architecture-rubric rows should probe for reasoning and PoV; development-rubric rows should probe for hands-on coding ability or specific implementation knowledge.
 
-Generate 1–3 questions per competency row. The total question count should be in the range 12–20 to keep interviews under 75 minutes.
+Generate questions to fit a TOTAL INTERVIEW BUDGET of 45 minutes (2700 seconds).
+Each question gets an expectedDurationSec based on difficulty:
+  - "easy"   (definitions, short conceptual): 90–180 sec
+  - "medium" (explanation with trade-offs, short code-think-aloud): 240–360 sec
+  - "hard"   (system design, longer coding, multi-step reasoning): 480–900 sec
+
+Sum the durations + a 10% recruiter-talk buffer = totalBudgetSec.
+Pick a question count that fits the budget naturally:
+  - 8–12 hard questions, OR
+  - 12–18 medium questions, OR
+  - some mix that lands the SUM near 2400 seconds (allowing ~300 sec buffer to 2700 cap).
+
+Do NOT pad to a fixed count. Prefer fewer, higher-quality questions when the role demands hard problems. Prefer more, shorter questions for junior-leaning candidates (totalYears < 3).
+
+Bias difficulty distribution to candidate seniority (this candidate has ${candidateTotalYears} total years, ${candidateRelevantYears} relevant):
+  - Senior (5+ years relevant): mostly "hard" + "medium", at most 1–2 "easy".
+  - Mid (2–5 years relevant): mostly "medium", a few "hard", a few "easy".
+  - Junior (<2 years relevant): mostly "easy" + "medium", at most 1–2 "hard".
 
 Output ONLY a single JSON object — no prose, no markdown fences — with this exact shape:
 
@@ -107,5 +127,9 @@ Generate the question plan now.`;
     modelProvider: config.llm.provider,
     modelId: config.llm.modelId,
     questions: (Array.isArray(raw?.questions) ? raw.questions : []) as QuestionPlan["questions"],
+    // Phase K — preserve the LLM's plan-level budget. Today the conductor
+    // doesn't read this; dashboard + future analytics do. Discarded
+    // silently before Phase K when the planner rebuilt the result.
+    totalBudgetSec: typeof raw?.totalBudgetSec === "number" ? raw.totalBudgetSec : undefined,
   };
 }
