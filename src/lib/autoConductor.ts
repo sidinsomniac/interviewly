@@ -164,11 +164,13 @@ export async function forceAdvance(interviewId: string): Promise<void> {
 // branchingInFlight Set debounces concurrent invocations per interview.
 //
 // Caps:
-//   - 2 branches per planned question (enforced here AND in the LLM prompt)
-//   - 50 char minimum on the candidate's chunk (filters "yes" / "I agree")
+//   - 3 branches per planned question (enforced here AND in the LLM prompt)
+//   - 30 char minimum on the candidate's chunk (filters "yes" / "I agree")
+//   - +90s deadline extension per branch (gives candidate time to answer the follow-up)
 const branchingInFlight: Set<string> = new Set();
-const BRANCHING_CAP_PER_QUESTION = 2;
-const BRANCHING_MIN_CHARS = 50;
+const BRANCHING_CAP_PER_QUESTION = 3;
+const BRANCHING_MIN_CHARS = 30;
+const BRANCHING_DEADLINE_EXTEND_MS = 90_000;
 
 export async function handleBranching(
   interviewId: string,
@@ -237,6 +239,32 @@ export async function handleBranching(
         { interviewId, currentIndex, messageId, branchQuestionText: decision.branchQuestionText },
         "handleBranching: posted branching follow-up"
       );
+
+      // Phase J — extend the per-question deadline so the candidate isn't
+      // cut off by the original advance() timer. Re-reads store to avoid
+      // stomping any state another path may have set in between. Floors at
+      // "now" so an already-expired deadline gets bumped forward from now
+      // rather than from the past.
+      const freshForExtend = store.get(interviewId);
+      if (freshForExtend?.autoConduct) {
+        const currentMs = Math.max(
+          Date.now(),
+          Date.parse(freshForExtend.autoConduct.nextQuestionDeadline) || Date.now()
+        );
+        const extendedDeadline = new Date(currentMs + BRANCHING_DEADLINE_EXTEND_MS).toISOString();
+        store.update(interviewId, {
+          autoConduct: { ...freshForExtend.autoConduct, nextQuestionDeadline: extendedDeadline },
+        });
+        log.info(
+          {
+            interviewId,
+            basedOnQuestionIndex: currentIndex,
+            newDeadline: extendedDeadline,
+            extendMs: BRANCHING_DEADLINE_EXTEND_MS,
+          },
+          "autoConductor: extended deadline for branch"
+        );
+      }
     } else {
       log.info(
         { interviewId, currentIndex, reasoning: decision.reasoning.slice(0, 100) },

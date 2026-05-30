@@ -83,6 +83,20 @@ Bias difficulty distribution to candidate seniority (this candidate has ${candid
   - Mid (2–5 years relevant): mostly "medium", a few "hard", a few "easy".
   - Junior (<2 years relevant): mostly "easy" + "medium", at most 1–2 "hard".
 
+Question VARIETY is mandatory. Across the plan, distribute questions across these styles, not just one:
+  - Direct definition ("Explain how X works internally")
+  - Trade-off comparison ("When would you reach for X over Y? What's the catch?")
+  - Situational ("Walk me through how you'd design X if you had Y constraint")
+  - "Tell me about a time you..." (anchor to candidate's actual projects from the JD if provided)
+  - Whiteboard / sketch ("Sketch the component hierarchy for X — talk it through")
+  - Failure mode ("What's the most subtle bug you've shipped with X?")
+
+Avoid textbook phrasing. NEVER start a question with "Can you explain..." or "What is...". Lead with a concrete scenario, a specific PR or codebase context, or a real-world failure case. Make the candidate REASON, not recite.
+
+If candidateTotalYears >= 5, lean into "tell me about a time" and failure-mode questions (they should have war stories). If candidateTotalYears < 3, lean toward direct definition and situational (no war stories yet).
+
+When the JD names specific libraries, services, or system components, weave those exact terms into question phrasing so the plan feels tailored, not generic. Don't invent stack details the JD doesn't mention.
+
 Output ONLY a single JSON object — no prose, no markdown fences — with this exact shape:
 
 ${QUESTION_PLAN_SHAPE}

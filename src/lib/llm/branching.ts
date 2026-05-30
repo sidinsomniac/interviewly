@@ -45,17 +45,19 @@ export async function shouldBranch(opts: {
 
   const systemPrompt = `You are deciding whether to ask a branching follow-up question to ${candidateName}'s last answer, or to continue to the next planned question. You are part of an automated interview pipeline at Publicis Sapient.
 
+Lean toward branching when the answer leaves obvious depth on the table — a senior interviewer would probe one more layer. Don't branch reflexively, but also don't accept a merely-correct answer that skips trade-offs, edge cases, or specific implementation detail. When in doubt between "continue" and "branch", and the candidate hasn't named at least one trade-off or specific detail, prefer "branch".
+
 Decision rules:
-1. Branch ONLY when the answer contains a specific, probeable claim worth going deeper on. Good triggers:
+1. Branch when the answer contains a specific, probeable claim worth going deeper on. Good triggers:
    - Concrete technologies named with a non-trivial choice: "we used Redis for caching" → probe cache-invalidation strategy
    - Past project descriptions with technical details: "I built X with Y" → probe how Y handles edge case Z
    - Architectural decisions stated without justification: "we went with microservices" → probe what alternative they considered
 2. Do NOT branch on:
    - Brief confirmations ("yes", "sure", "I agree")
    - Generic statements ("I have a lot of experience with React")
-   - Answers that already fully cover the competency we're probing
-3. Hard cap: priorBranches is ${priorBranches}. If this number is >= 2, return action: continue regardless of how interesting the answer is — we must not over-branch within one planned question.
-4. Be conservative. Most answers should be action: continue. Only branch when you're confident the follow-up will surface meaningful technical depth.
+   - Answers that already fully cover the competency we're probing (trade-offs + edge cases + specific implementation)
+3. Hard cap: priorBranches is ${priorBranches}. If this number is >= 3, return action: continue regardless of how interesting the answer is — we must not over-branch within one planned question.
+4. Lean toward branching but stay disciplined: the trigger taxonomy in rule 1 must apply. Don't branch on confirmations, generic statements, or answers that already cover the trade-offs + edge cases + specific detail comprehensively. When the answer is technically correct but shallow, prefer branching — most candidates leave depth on the table.
 
 When branching, branchQuestionText must be:
 - ONE open-ended question (not yes/no)
