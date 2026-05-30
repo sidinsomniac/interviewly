@@ -16,6 +16,8 @@ import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
 import { startAutoConduct, isAutoConductRunning } from "@/lib/autoConductor";
 import { fetchChatMessagesSince } from "@/lib/graph/chatHistory";
+import { sendChatMessage } from "@/lib/graph/chat";
+import { MEDHA_INTRO_SPEECH, MEDHA_CONSENT_CHAT_HTML } from "@/lib/medhaScripts";
 
 const StartBodySchema = z.object({
   perQuestionTimeoutMs: z.number().int().positive().optional(),
@@ -39,7 +41,10 @@ export async function POST(
   // Phase G: log conductMode but don't branch — Phase H wires Mode B's voice
   // path. Both modes share the transcript-keyword loop today.
   log.info({ interviewId: id, conductMode: interview.conductMode }, "auto-conduct/start: mode");
-  if (!interview.welcomePostedAt) {
+  // Phase G follow-up: Mode A requires the recruiter to have posted welcome
+  // first; Mode B will have Medha speak + post welcome herself from this very
+  // route, so the gate must not fire for auto interviews.
+  if (interview.conductMode === "manual" && !interview.welcomePostedAt) {
     return NextResponse.json(
       { ok: false, error: "Post the welcome + consent message before starting auto-conduct." },
       { status: 409 }
@@ -122,6 +127,7 @@ export async function POST(
   const haveBotIds =
     !!interview.organizerGuid &&
     !!interview.chatId;
+  let botJoinSucceeded = false;
   if (config.bot.baseUrl && haveBotIds) {
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), 6000);
@@ -150,6 +156,7 @@ export async function POST(
           "auto-conduct/start: bot /api/bot/join returned non-2xx (continuing without bot)"
         );
       } else {
+        botJoinSucceeded = true;
         log.info({ interviewId: id }, "auto-conduct/start: bot /api/bot/join succeeded");
       }
     } catch (err) {
@@ -173,5 +180,91 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ ok: true, autoConduct: updated?.autoConduct });
+  // Phase H — Mode B intro + consent gate. Only runs for auto interviews
+  // when the bot is actually in the call (botJoinSucceeded). Both the TTS
+  // speak call and the chat post are best-effort: a failure log.warns but
+  // we still flip awaitingConsent=true so the conductor waits for "I agree".
+  // Sid can manually retry by posting from the dashboard.
+  let modeBPatched = updated;
+  if (interview.conductMode === "auto" && botJoinSucceeded) {
+    // Give the bot's call enough time to transition Establishing → Established
+    // before /speak. The bot's SpeakAsync 404s with "no active call" if invoked
+    // mid-handshake. Bumped 5s → 8s (2026-05-30) after Sid saw the first-attempt
+    // silent issue from Phase H verification — call object was still Establishing
+    // at the 5s mark. Widen further if `bot/speak: no active call` warnings reappear.
+    await new Promise((r) => setTimeout(r, 8000));
+
+    // 1) Speak the intro through the bot. Longer timeout than join (TTS
+    // synthesis + 20 ms PCM chunk pacing eats a few seconds).
+    const speakController = new AbortController();
+    const speakTimeout = setTimeout(() => speakController.abort(), 10_000);
+    try {
+      const res = await fetch(`${config.bot.baseUrl!.replace(/\/$/, "")}/api/bot/speak`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Medha-Secret": config.bot.sharedSecret ?? "",
+        },
+        body: JSON.stringify({ interviewId: id, text: MEDHA_INTRO_SPEECH }),
+        signal: speakController.signal,
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        log.warn(
+          { interviewId: id, status: res.status, body: body.slice(0, 300) },
+          "auto-conduct/start: Mode B /api/bot/speak non-2xx (continuing — chat consent still posts)"
+        );
+      } else {
+        log.info({ interviewId: id }, "auto-conduct/start: Mode B intro speak enqueued");
+      }
+    } catch (err) {
+      log.warn(
+        { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+        "auto-conduct/start: Mode B /api/bot/speak failed (continuing — chat consent still posts)"
+      );
+    } finally {
+      clearTimeout(speakTimeout);
+    }
+
+    // 2) Post the consent message to the meeting chat. Same helper that
+    // /post-welcome uses — handles the Graph delegated client + HTML body.
+    if (interview.chatId) {
+      try {
+        await sendChatMessage(interview.chatId, MEDHA_CONSENT_CHAT_HTML);
+        log.info({ interviewId: id }, "auto-conduct/start: Mode B consent message posted");
+      } catch (err) {
+        log.warn(
+          { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+          "auto-conduct/start: Mode B sendChatMessage failed (gate still set — Sid can post manually)"
+        );
+      }
+    }
+
+    // 3) Flip the awaitingConsent gate. The conductor's poll tick will now
+    // short-circuit keyword + timeout advances until the candidate types
+    // /\bi\s+agree\b/i in chat (see src/lib/autoConductor.ts).
+    modeBPatched = store.update(id, {
+      autoConduct: {
+        ...(updated?.autoConduct ?? {
+          // belt-and-braces: should always be set by the store.update above,
+          // but if it isn't (theoretical race), reconstruct from defaults so
+          // the shape is valid.
+          active: true,
+          startedAt: now.toISOString(),
+          currentQuestionIndex: -1,
+          nextQuestionDeadline: new Date(now.getTime() + timeoutMs).toISOString(),
+          perQuestionTimeoutMs: timeoutMs,
+          triggerKeywords: keywords,
+        }),
+        awaitingConsent: true,
+      },
+    });
+
+    log.info(
+      { interviewId: id },
+      "auto-conduct/start: Mode B intro spoken + consent posted, awaiting 'I agree'"
+    );
+  }
+
+  return NextResponse.json({ ok: true, autoConduct: modeBPatched?.autoConduct });
 }

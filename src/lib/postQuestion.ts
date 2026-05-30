@@ -69,6 +69,53 @@ export async function postQuestionByIndex(
     status: "in_progress",
   });
 
+  // Phase I — Mode B: also speak the question through the bot. Fire-and-forget
+  // with a 15s timeout (longer than the intro's 10s because question texts can
+  // be 1–3 sentences). Failures are non-fatal — the chat post already succeeded,
+  // the recruiter sees the question in the dashboard, and the conductor still
+  // advances. Skipped cleanly in TEST_MODE (no bot configured), in Mode A, or
+  // when the bot env vars are unset.
+  if (
+    !config.app.testMode &&
+    interview.conductMode === "auto" &&
+    config.bot.baseUrl &&
+    config.bot.sharedSecret
+  ) {
+    const botBaseUrl = config.bot.baseUrl;
+    const botSecret = config.bot.sharedSecret;
+    void (async () => {
+      const speakController = new AbortController();
+      const speakTimeout = setTimeout(() => speakController.abort(), 15_000);
+      try {
+        const res = await fetch(`${botBaseUrl.replace(/\/$/, "")}/api/bot/speak`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Medha-Secret": botSecret,
+          },
+          body: JSON.stringify({ interviewId, text: question.questionText }),
+          signal: speakController.signal,
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          log.warn(
+            { interviewId, arrayIndex, status: res.status, body: body.slice(0, 300) },
+            "postQuestion: Mode B speak non-2xx (chat post succeeded, continuing)"
+          );
+        } else {
+          log.info({ interviewId, arrayIndex }, "postQuestion: Mode B speak enqueued");
+        }
+      } catch (err) {
+        log.warn(
+          { interviewId, arrayIndex, err: err instanceof Error ? err.message : String(err) },
+          "postQuestion: Mode B speak failed (chat post succeeded, continuing)"
+        );
+      } finally {
+        clearTimeout(speakTimeout);
+      }
+    })();
+  }
+
   return {
     messageId,
     postedAt,

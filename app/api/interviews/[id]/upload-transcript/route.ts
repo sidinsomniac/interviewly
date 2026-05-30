@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { store } from "@/lib/store";
 import { parseVtt } from "@/lib/graph/transcript";
+import { finalize } from "@/lib/endInterview";
 import type { TranscriptSegment } from "@/types/index";
-
-// Dynamically import finalize to avoid circular dep issues
-async function getFinalizeFromEnd() {
-  const mod = await import("../end/route");
-  return mod.finalize;
-}
 
 export async function POST(
   req: NextRequest,
@@ -46,7 +41,6 @@ export async function POST(
     }
 
     store.update(id, { status: "ended" });
-    const finalize = await getFinalizeFromEnd();
     void finalize(id, segments);
 
     return NextResponse.json({ ok: true, segmentsLoaded: segments.length });

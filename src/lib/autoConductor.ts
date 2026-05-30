@@ -273,6 +273,68 @@ async function tick(interviewId: string): Promise<void> {
       return;
     }
 
+    // Phase H — Mode B consent gate. Short-circuits BOTH the timeout path
+    // and the keyword path until the candidate types /\bi\s+agree\b/i in
+    // chat. Scanning logic mirrors the keyword loop below (same chat fetch,
+    // same bot/organizer filter, same lastSeenChatMessageId persistence).
+    if (ac.awaitingConsent) {
+      // In TEST_MODE the chat poll is stubbed — skip the scan but still
+      // short-circuit so the timeout path doesn't fire and accidentally
+      // advance past consent. Tests don't currently exercise this path.
+      if (config.app.testMode) {
+        log.debug({ interviewId }, "autoConductor: tick — awaitingConsent + TEST_MODE, holding");
+        return;
+      }
+      const sinceIso = ac.lastSeenChatMessageId
+        ? await seedSinceDateTime(interview.chatId!, ac.lastSeenChatMessageId)
+        : undefined;
+      const messages = await fetchChatMessagesSince(interview.chatId!, sinceIso);
+      let lastSeenId = ac.lastSeenChatMessageId;
+      let consented = false;
+      for (const msg of messages) {
+        lastSeenId = msg.id;
+        const fromId = msg.from?.user?.id;
+        // Bot's OWN consent post must never trigger detection. Note we do NOT
+        // filter the organizer here (unlike the keyword loop below) — Mode A's
+        // keyword loop excludes the recruiter because they have the Skip button
+        // in the dashboard, but Mode B's consent gate must let through candidates
+        // who happen to share an organizer-flavoured identity. False positives
+        // are near-zero (recruiters wouldn't type "I agree" in production).
+        if (fromId === ctx.botUserGuid) continue;
+        const text = msg.body?.contentType === "html"
+          ? stripHtml(msg.body.content ?? "")
+          : (msg.body?.content ?? "").trim();
+        if (!text) continue;
+        // Word-boundary "I agree" — case-insensitive, tolerant of trailing
+        // punctuation ("I agree.") and surrounding text ("yes I agree to
+        // proceed"). Excludes "disagree" and "i'm agreeable".
+        if (/\bi\s+agree\b/i.test(text)) {
+          consented = true;
+          break;
+        }
+      }
+      // Persist lastSeenId (and consent flip if matched) in a single update.
+      const patch = consented
+        ? {
+            ...ac,
+            lastSeenChatMessageId: lastSeenId,
+            awaitingConsent: false,
+            consentReceivedAt: new Date().toISOString(),
+          }
+        : { ...ac, lastSeenChatMessageId: lastSeenId };
+      if (
+        lastSeenId !== ac.lastSeenChatMessageId ||
+        consented
+      ) {
+        store.update(interviewId, { autoConduct: patch });
+      }
+      if (consented) {
+        log.info({ interviewId }, "autoConductor: consent received, advancing to Q1");
+        await advance(interviewId, "keyword");
+      }
+      return; // hold — do NOT fall through to timeout/keyword paths
+    }
+
     // Timeout path
     if (Date.now() > Date.parse(ac.nextQuestionDeadline)) {
       await advance(interviewId, "timeout");

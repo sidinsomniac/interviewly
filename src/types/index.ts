@@ -94,6 +94,14 @@ export interface InterviewMetadata {
     lastSeenChatMessageId?: string;
     perQuestionTimeoutMs: number;
     triggerKeywords: string[];
+    // Phase H — Mode B intro+consent gate. While `awaitingConsent` is true,
+    // the conductor's poll tick short-circuits both keyword and timeout
+    // advance paths; the only thing that flips it off is the candidate
+    // typing /\bi\s+agree\b/i in the meeting chat. `consentReceivedAt` is
+    // stamped at the same moment for audit. Both optional — legacy JSON
+    // records load without migration.
+    awaitingConsent?: boolean;
+    consentReceivedAt?: string;
   };
 
   // Scope Y: live transcript + DeepSeek-driven branching.

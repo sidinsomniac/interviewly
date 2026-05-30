@@ -23,7 +23,7 @@ import { z } from "zod";
 import { store } from "@/lib/store";
 import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
-import { handleBranching } from "@/lib/autoConductor";
+import { handleBranching, forceAdvance } from "@/lib/autoConductor";
 import type { LiveTranscriptChunk } from "@/types/index";
 
 const BodySchema = z.object({
@@ -91,6 +91,33 @@ export async function POST(
     void handleBranching(id, chunk).catch((err) =>
       log.error({ interviewId: id, err: err instanceof Error ? err.message : String(err) },
                 "live-transcript: handleBranching threw (non-fatal)")
+    );
+  }
+
+  // Phase H follow-up — voice consent path. Mutex with branching above (which
+  // requires currentQuestionIndex >= 0; consent fires while it's -1). Same
+  // bot-filter (isBot) and same regex as autoConductor's chat consent gate.
+  // Flips awaitingConsent off + stamps consentReceivedAt in one store.update,
+  // then kicks forceAdvance — the same public path the Skip button uses —
+  // fire-and-forget so the bot's POST returns fast.
+  if (
+    updated?.autoConduct?.awaitingConsent === true &&
+    !isBot &&
+    /\bi\s+agree\b/i.test(chunk.text)
+  ) {
+    log.info({ interviewId: id }, "live-transcript: voice consent received, advancing to Q1");
+    store.update(id, {
+      autoConduct: {
+        ...updated.autoConduct,
+        awaitingConsent: false,
+        consentReceivedAt: new Date().toISOString(),
+      },
+    });
+    void forceAdvance(id).catch((err) =>
+      log.error(
+        { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+        "live-transcript: voice-consent forceAdvance threw (non-fatal)"
+      )
     );
   }
 

@@ -1,226 +1,28 @@
+// ============================================================
+// Recruiter-driven end-of-interview. Calls the shared endInterview()
+// helper (src/lib/endInterview.ts), which is idempotent — a second
+// click returns { ok: true, alreadyEnded: true } instead of regenerating
+// the probe form.
+//
+// The finalize body lives in src/lib/endInterview.ts now so the
+// bot-event route can call the same idempotent entry point without
+// duplicating logic. Phase I extraction.
+// ============================================================
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "crypto";
-import fs from "fs";
-import path from "path";
-import { store } from "@/lib/store";
-import { config } from "@/lib/config";
-import { log } from "@/lib/logger";
-import { resolveOrganizerGuid, listTranscripts, fetchTranscriptVtt, parseVtt } from "@/lib/graph/transcript";
-import { fetchChatMessages } from "@/lib/graph/chatHistory";
-import { mergeTranscriptSources } from "@/lib/transcript-merge";
-import { mapTranscriptToProbeForm } from "@/lib/llm/transcript-mapping";
-import { loadTemplate, fillProbeForm, addMetaSheet, toBuffer } from "@/lib/probeform/filler";
-import { getRoleSchema } from "@/lib/probeform/registry";
-import { loadFixtureBundle } from "@/lib/fixtures";
-import { stopAutoConduct } from "@/lib/autoConductor";
-import type { TranscriptSegment } from "@/types/index";
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): Promise<void> {
-  const interview = store.get(id);
-  if (!interview) return;
-
-  // Scope X: end-interview always wins. If the auto-conductor is still
-  // ticking, stop it BEFORE we start the (potentially long) Graph polling
-  // and Excel-fill work, so the timer doesn't post stale questions or
-  // pile up logs while finalize runs.
-  if (interview.autoConduct?.active) {
-    log.info({ interviewId: id }, "end-interview: stopping active auto-conductor");
-    stopAutoConduct(id);
-    store.update(id, {
-      autoConduct: { ...interview.autoConduct, active: false },
-    });
-  }
-
-  // Scope Y: ask the sidecar bot to leave the meeting. Non-fatal —
-  // even if the bot is unreachable or already left, finalize must
-  // proceed to produce the probe form.
-  if (config.bot.baseUrl) {
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), 6000);
-    try {
-      await fetch(`${config.bot.baseUrl.replace(/\/$/, "")}/api/bot/leave`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Medha-Secret": config.bot.sharedSecret ?? "",
-        },
-        body: JSON.stringify({ interviewId: id }),
-        signal: controller.signal,
-      });
-      log.info({ interviewId: id }, "end-interview: bot /api/bot/leave called");
-    } catch (err) {
-      log.warn(
-        { interviewId: id, err: err instanceof Error ? err.message : String(err) },
-        "end-interview: bot /api/bot/leave failed (continuing finalize)"
-      );
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
-  }
-
-  const schema = getRoleSchema(interview.roleId);
-  if (!schema) {
-    const msg = `Unknown roleId "${interview.roleId}" on interview ${id}. ` +
-      `Registry has: ${Object.keys((await import("@/lib/probeform/registry")).ROLE_REGISTRY).join(", ")}`;
-    log.error({ interviewId: id }, msg);
-    store.update(id, { status: "failed", errorMessage: msg });
-    return;
-  }
-
-  try {
-    let vttSegments: TranscriptSegment[] = injectedVttSegments ?? [];
-    let vttRaw = "";
-    let chatSegments: TranscriptSegment[] = [];
-    let fixtureMeta: { role: string; outcome: string } | null = null;
-
-    // ── TEST_MODE branch ─────────────────────────────────────
-    // Skip all Graph polling and use fixtures from data/fixtures/.
-    // Lets the full pipeline run in <30 sec without a real meeting.
-    if (config.app.testMode && !injectedVttSegments) {
-      // MEDHA_TEST_FIXTURE_ROLE is an explicit dev override: when set in
-      // .env.local, it forces the fixture lookup regardless of the
-      // interview's roleId. Useful for testing roles whose own fixture
-      // doesn't exist yet (e.g. UI shows "Frontend Engineer" but we want
-      // to load the existing "core" fixture). We read the raw env here
-      // rather than config.app.fixtureRole because that getter defaults
-      // to "react" — which would silently hijack every TEST_MODE run if
-      // we used it as the fallback when the env is unset.
-      const explicitFixtureRole = process.env.MEDHA_TEST_FIXTURE_ROLE?.trim();
-      const fixtureRole = explicitFixtureRole || interview.roleId;
-      log.info(
-        {
-          interviewId: id,
-          interviewRoleId: interview.roleId,
-          explicitFixtureRole: explicitFixtureRole ?? null,
-          resolvedFixtureRole: fixtureRole,
-        },
-        "TEST_MODE fixture role resolution"
-      );
-      const bundle = await loadFixtureBundle({
-        role: fixtureRole,
-        outcome: config.app.fixtureOutcome,
-      });
-      vttRaw = bundle.vttRaw;
-      vttSegments = bundle.vttSegments;
-      chatSegments = bundle.chatSegments;
-      fixtureMeta = bundle.meta;
-      log.warn(
-        { interviewId: id, ...fixtureMeta },
-        "TEST_MODE active — using fixture transcript + chat history instead of Graph"
-      );
-    } else if (!injectedVttSegments) {
-      // ── Real Graph path ──────────────────────────────────
-      const organizerGuid = interview.organizerGuid
-        ?? await resolveOrganizerGuid(config.ms.organizerEmail);
-      const delays = [5, 10, 20, 40, 80, 120];
-      let transcripts: Array<{ id: string }> = [];
-
-      for (const delaySec of delays) {
-        await sleep(delaySec * 1000);
-        log.info({ interviewId: id, delaySec }, "Polling for transcript...");
-        transcripts = await listTranscripts(organizerGuid, interview.meetingId!);
-        if (transcripts.length > 0) break;
-      }
-
-      if (transcripts.length === 0) {
-        throw new Error("Transcript not available after 5 minutes of polling. Use manual upload.");
-      }
-
-      vttRaw = await fetchTranscriptVtt(organizerGuid, interview.meetingId!, transcripts[0].id);
-      vttSegments = parseVtt(vttRaw);
-      log.info({ interviewId: id, segmentCount: vttSegments.length }, "VTT parsed");
-    }
-
-    // Chat history: fixtures already populated `chatSegments` above; in
-    // every other path (real meeting, or injected VTT via manual upload)
-    // we still want the live chat from Graph.
-    if (!config.app.testMode || injectedVttSegments) {
-      chatSegments = await fetchChatMessages(interview.chatId!);
-    }
-    const transcript = mergeTranscriptSources(vttSegments, chatSegments);
-    log.info(
-      { interviewId: id, totalSegments: transcript.length, testMode: !!fixtureMeta },
-      "Transcript merged"
-    );
-
-    const filledForm = await mapTranscriptToProbeForm({
-      schema,
-      interviewId: id,
-      candidateName: interview.candidateName,
-      roleAppliedFor: interview.roleAppliedFor,
-      candidateTotalYears: interview.candidateTotalYears,
-      candidateRelevantYears: interview.candidateRelevantYears,
-      transcript,
-      questionPlan: interview.questionPlan!,
-    });
-
-    const wb = await loadTemplate(schema.excelTemplate);
-    fillProbeForm(wb, schema, filledForm);
-
-    const transcriptSha256 = vttRaw
-      ? createHash("sha256").update(vttRaw).digest("hex")
-      : createHash("sha256").update(JSON.stringify(vttSegments)).digest("hex");
-
-    addMetaSheet(wb, {
-      app: "interviewly",
-      version: "0.1.0",
-      modelProvider: config.llm.provider,
-      modelId: config.llm.modelId,
-      generatedAt: new Date().toISOString(),
-      meetingId: fixtureMeta
-        ? `TEST_MODE:${fixtureMeta.role}-${fixtureMeta.outcome}`
-        : (interview.meetingId ?? "unknown"),
-      transcriptSha256,
-      recruiterEmail: config.ms.organizerEmail,
-      botUserEmail: config.ms.botUserEmail,
-      testMode: !!fixtureMeta,
-      fixtureId: fixtureMeta ? `${fixtureMeta.role}/${fixtureMeta.outcome}` : undefined,
-    });
-
-    const buffer = await toBuffer(wb);
-
-    const outputDir = path.resolve(process.cwd(), config.app.outputDir);
-    fs.mkdirSync(outputDir, { recursive: true });
-    const filePath = path.join(outputDir, `${id}.xlsx`);
-    fs.writeFileSync(filePath, buffer);
-
-    store.update(id, {
-      status: "completed",
-      filledForm,
-      transcript,
-      probeFormFilePath: `${id}.xlsx`,
-    });
-
-    log.info({ interviewId: id, filePath }, "Probe form generated successfully");
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error({ interviewId: id, err: errorMessage }, "Finalize failed");
-    store.update(id, { status: "failed", errorMessage });
-  }
-}
+import { endInterview } from "@/lib/endInterview";
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const interview = store.get(id);
-  if (!interview) {
+  const result = await endInterview(id);
+  if (!result.found) {
     return NextResponse.json({ ok: false, error: "Interview not found" }, { status: 404 });
   }
-
-  store.update(id, { status: "ended" });
-  void finalize(id);
-
   return NextResponse.json({
     ok: true,
+    alreadyEnded: result.alreadyEnded,
     downloadUrl: `/api/interviews/${id}/probe-form`,
   });
 }
-
-// Export for use by upload-transcript route
-export { finalize };
