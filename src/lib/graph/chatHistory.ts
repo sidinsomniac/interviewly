@@ -1,16 +1,45 @@
 import { getDelegatedClient } from "@/lib/graph/client";
 import type { TranscriptSegment } from "@/types/index";
 
-type ChatMessage = {
+// Exported for Scope X — the auto-conductor needs raw id + from.user.id
+// to filter out bot/organizer messages by GUID.
+export type ChatMessage = {
   id: string;
   createdDateTime: string;
-  from?: { user?: { displayName?: string } };
+  from?: { user?: { id?: string; displayName?: string } };
   body?: { content?: string; contentType?: string };
   messageType?: string;
 };
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Scope X — fetch raw chat messages newer than `lastSeenCreatedDateTime`.
+ * Returns up to the most recent 20 messages, chronological asc. When
+ * `lastSeenCreatedDateTime` is undefined, returns all 20 (the caller
+ * will typically use the last id of that set as the next seed). The
+ * auto-conductor polls this every 5s during an active session.
+ */
+export async function fetchChatMessagesSince(
+  chatId: string,
+  lastSeenCreatedDateTime?: string
+): Promise<ChatMessage[]> {
+  const client = await getDelegatedClient();
+  const res = await client
+    .api(`/chats/${chatId}/messages`)
+    .orderby("createdDateTime desc")
+    .top(20)
+    .get();
+  const raw: ChatMessage[] = (res.value ?? []) as ChatMessage[];
+
+  // Restore chronological order (Graph returned desc).
+  raw.reverse();
+
+  if (!lastSeenCreatedDateTime) return raw;
+  const cutoff = Date.parse(lastSeenCreatedDateTime);
+  return raw.filter((m) => Date.parse(m.createdDateTime) > cutoff);
 }
 
 export async function fetchChatMessages(chatId: string): Promise<TranscriptSegment[]> {

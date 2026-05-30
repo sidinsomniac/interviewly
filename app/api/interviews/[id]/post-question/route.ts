@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { store } from "@/lib/store";
 import { sendChatMessage, formatQuestionMessage } from "@/lib/graph/chat";
+import { postQuestionByIndex } from "@/lib/postQuestion";
 import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
 import { z } from "zod";
@@ -28,50 +29,65 @@ export async function POST(
       return NextResponse.json({ ok: false, error: "Interview has no chatId — meeting not resolved" }, { status: 400 });
     }
 
-    const questions = interview.questionPlan?.questions ?? [];
-    const total = questions.length;
-
-    // rowIndex 0 = consent message (special case)
-    let questionToPost = null;
-    let displayIndex = 0;
-    if (rowIndex === 0) {
-      displayIndex = 0;
-    } else {
-      const q = questions.find((q) => q.rowIndex === rowIndex);
-      if (!q) {
-        return NextResponse.json({ ok: false, error: `No question with rowIndex ${rowIndex}` }, { status: 400 });
-      }
-      questionToPost = q;
-      displayIndex = questions.indexOf(q) + 1;
-    }
-
-    const html = formatQuestionMessage(questionToPost, displayIndex, total);
-
-    // In TEST_MODE the interview's chatId is a stub like `test-mode-chat-...`
-    // (see /api/interviews POST). Hitting Graph with it returns 404. Stub
-    // the post so the demo flow stays clickable; the local postedQuestionIndices
-    // state still updates so the dashboard reflects the action.
-    let messageId: string;
-    if (config.app.testMode) {
-      messageId = `test-mode-msg-${Date.now()}-${rowIndex}`;
-      log.warn(
-        { interviewId: id, rowIndex, chatId: interview.chatId },
-        "TEST_MODE: skipping Graph chat post; stamping local state only"
+    // Scope X: manual posting collides with the auto-conductor's index
+    // bookkeeping. The dashboard hides Post buttons during auto-conduct;
+    // a direct API call should fail loudly with a clear message.
+    if (interview.autoConduct?.active) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Auto-Conduct is active — manual question posting is disabled. " +
+            "Use the Skip button to advance, or click Stop Auto-Conduct first.",
+        },
+        { status: 409 }
       );
-    } else {
-      messageId = await sendChatMessage(interview.chatId, html);
     }
 
-    store.update(id, {
-      postedQuestionIndices: [...interview.postedQuestionIndices, rowIndex],
-      status: "in_progress",
-    });
+    const questions = interview.questionPlan?.questions ?? [];
 
+    // rowIndex 0 = consent message (special case — predates the separate
+    // /post-welcome route; kept for back-compat with the manual UI button
+    // on the consent row).
+    if (rowIndex === 0) {
+      const html = formatQuestionMessage(null, 0, questions.length);
+      let messageId: string;
+      if (config.app.testMode) {
+        messageId = `test-mode-msg-${Date.now()}-consent`;
+        log.warn(
+          { interviewId: id, rowIndex, chatId: interview.chatId },
+          "TEST_MODE: skipping Graph chat post (consent); stamping local state only"
+        );
+      } else {
+        messageId = await sendChatMessage(interview.chatId, html);
+      }
+      store.update(id, {
+        postedQuestionIndices: [...interview.postedQuestionIndices, 0],
+        status: "in_progress",
+      });
+      return NextResponse.json({
+        ok: true,
+        messageId,
+        postedAt: new Date().toISOString(),
+        testMode: config.app.testMode,
+      });
+    }
+
+    // Non-consent: translate rowIndex → arrayIndex and delegate to the
+    // shared helper (also used by autoConductor's advance()).
+    const arrayIndex = questions.findIndex((q) => q.rowIndex === rowIndex);
+    if (arrayIndex === -1) {
+      return NextResponse.json(
+        { ok: false, error: `No question with rowIndex ${rowIndex}` },
+        { status: 400 }
+      );
+    }
+    const result = await postQuestionByIndex(id, arrayIndex);
     return NextResponse.json({
       ok: true,
-      messageId,
-      postedAt: new Date().toISOString(),
-      testMode: config.app.testMode,
+      messageId: result.messageId,
+      postedAt: result.postedAt,
+      testMode: result.testMode,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

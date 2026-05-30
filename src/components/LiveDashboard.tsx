@@ -5,6 +5,8 @@ import type { InterviewMetadata } from "@/types/index";
 import { getRoleSchema } from "@/lib/probeform/registry";
 import { QuestionList } from "@/components/QuestionList";
 import { StatusPanel } from "@/components/StatusPanel";
+import { TranscriptPanel } from "@/components/TranscriptPanel";
+import { UsageFooter } from "@/components/UsageFooter";
 
 // Mirrored from MEDHA_TEST_MODE on the server via NEXT_PUBLIC_MEDHA_TEST_MODE.
 // Inlined at build time by Next; safe to evaluate at module scope.
@@ -45,13 +47,17 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-[3] overflow-y-auto border-r border-gray-200">
+        <div className="flex-[5] overflow-y-auto border-r border-gray-200">
           <QuestionList interview={interview} onUpdate={refresh} />
         </div>
-        <div className="flex-[2] overflow-y-auto">
+        <div className="flex-[3] overflow-hidden">
+          <TranscriptPanel interview={interview} />
+        </div>
+        <div className="flex-[2] overflow-y-auto border-l border-gray-200">
           <StatusPanel interview={interview} onUpdate={refresh} />
         </div>
       </div>
+      <UsageFooter interviewId={interview.id} />
     </div>
   );
 }

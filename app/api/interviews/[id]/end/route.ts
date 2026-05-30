@@ -12,6 +12,7 @@ import { mapTranscriptToProbeForm } from "@/lib/llm/transcript-mapping";
 import { loadTemplate, fillProbeForm, addMetaSheet, toBuffer } from "@/lib/probeform/filler";
 import { getRoleSchema } from "@/lib/probeform/registry";
 import { loadFixtureBundle } from "@/lib/fixtures";
+import { stopAutoConduct } from "@/lib/autoConductor";
 import type { TranscriptSegment } from "@/types/index";
 
 function sleep(ms: number) {
@@ -21,6 +22,45 @@ function sleep(ms: number) {
 async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): Promise<void> {
   const interview = store.get(id);
   if (!interview) return;
+
+  // Scope X: end-interview always wins. If the auto-conductor is still
+  // ticking, stop it BEFORE we start the (potentially long) Graph polling
+  // and Excel-fill work, so the timer doesn't post stale questions or
+  // pile up logs while finalize runs.
+  if (interview.autoConduct?.active) {
+    log.info({ interviewId: id }, "end-interview: stopping active auto-conductor");
+    stopAutoConduct(id);
+    store.update(id, {
+      autoConduct: { ...interview.autoConduct, active: false },
+    });
+  }
+
+  // Scope Y: ask the sidecar bot to leave the meeting. Non-fatal —
+  // even if the bot is unreachable or already left, finalize must
+  // proceed to produce the probe form.
+  if (config.bot.baseUrl) {
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), 6000);
+    try {
+      await fetch(`${config.bot.baseUrl.replace(/\/$/, "")}/api/bot/leave`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Medha-Secret": config.bot.sharedSecret ?? "",
+        },
+        body: JSON.stringify({ interviewId: id }),
+        signal: controller.signal,
+      });
+      log.info({ interviewId: id }, "end-interview: bot /api/bot/leave called");
+    } catch (err) {
+      log.warn(
+        { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+        "end-interview: bot /api/bot/leave failed (continuing finalize)"
+      );
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }
 
   const schema = getRoleSchema(interview.roleId);
   if (!schema) {
@@ -109,6 +149,7 @@ async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): 
 
     const filledForm = await mapTranscriptToProbeForm({
       schema,
+      interviewId: id,
       candidateName: interview.candidateName,
       roleAppliedFor: interview.roleAppliedFor,
       candidateTotalYears: interview.candidateTotalYears,

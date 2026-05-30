@@ -30,8 +30,10 @@ export async function generateQuestionPlan(input: {
   candidateTotalYears: number;
   candidateRelevantYears: number;
   jdText?: string;
+  /** Budget-tracker: associates this call with an interview in /api/usage. */
+  interviewId?: string;
 }): Promise<QuestionPlan> {
-  const { schema, roleAppliedFor, candidateTotalYears, candidateRelevantYears, jdText } = input;
+  const { schema, roleAppliedFor, candidateTotalYears, candidateRelevantYears, jdText, interviewId } = input;
   const rows = flattenRows(schema);
   const rowsJson = JSON.stringify(rows, null, 2);
 
@@ -72,7 +74,7 @@ ${jdText ?? "(no JD provided — use generic competency definitions)"}
 
 Generate the question plan now.`;
 
-  const model = getChatModel(0.5);
+  const model = getChatModel(0.5, { interviewId, purpose: "question-plan" });
   const method = structuredOutputMethod();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

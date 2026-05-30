@@ -56,8 +56,10 @@ export async function mapTranscriptToProbeForm(input: {
   candidateRelevantYears: number;
   transcript: TranscriptSegment[];
   questionPlan: QuestionPlan;
+  /** Budget-tracker: associates this call with an interview in /api/usage. */
+  interviewId?: string;
 }): Promise<FilledProbeForm> {
-  const { schema, candidateName, roleAppliedFor, candidateTotalYears, candidateRelevantYears, transcript, questionPlan } = input;
+  const { schema, candidateName, roleAppliedFor, candidateTotalYears, candidateRelevantYears, transcript, questionPlan, interviewId } = input;
   const rows = flattenRows(schema);
   const rowsJson = JSON.stringify(rows, null, 2);
   const questionsJson = JSON.stringify(questionPlan.questions, null, 2);
@@ -135,7 +137,7 @@ ${transcriptText}
 
 Now fill out the probe form.`;
 
-  const model = getChatModel(0.2);
+  const model = getChatModel(0.2, { interviewId, purpose: "transcript-mapping" });
   const method = structuredOutputMethod();
 
   for (let attempt = 0; attempt < 3; attempt++) {

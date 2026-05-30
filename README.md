@@ -35,3 +35,34 @@ The UI dropdown ([`src/components/NewInterviewForm.tsx`](src/components/NewInter
 | `pnpm smoke:end-interview-testmode [ROLE_ID=…]` | Full TEST_MODE pipeline (fixture → LLM → Excel). Requires a fixture for the role. |
 | `pnpm smoke:all-roles` | Meta-runner: probeform smoke for every registered role, end-interview smoke for every role with a fixture. |
 | `pnpm smoke:question-plan` | DeepSeek question-plan generation against the React schema. |
+
+## Live transcript + branching (Scope Y)
+
+When the [`medha-bot`](../medha-bot/) sidecar is deployed and reachable, Medha asks it to join Teams meetings via `POST /api/bot/join` and the sidecar streams live STT chunks back to `POST /api/interviews/[id]/live-transcript`. On each final candidate utterance ≥50 chars, DeepSeek decides whether to post a branching follow-up question (max 2 per planned question). The dashboard shows the running transcript + a budget pill with running LLM cost.
+
+Bot integration is **optional** — when `MEDHA_BOT_BASE_URL` is unset, Medha falls back to Scope X chat-keyword + timer only. Bot failures during a live interview are non-fatal (logged warn, conductor continues).
+
+Required env vars (`.env.local`):
+```
+MEDHA_BOT_BASE_URL=https://bot.medha-by.space
+MEDHA_BOT_SHARED_SECRET=<random string, must match the sidecar's secret>
+```
+
+### Local testing without a real sidecar
+
+```bash
+# In one terminal — start the dev server with TEST_MODE and the secret set:
+MEDHA_TEST_MODE=true MEDHA_BOT_SHARED_SECRET=devsecret pnpm dev
+
+# Create an interview through the UI, click "Post Welcome", then "Start Auto-Conduct"
+# (the bot /join POST will fail in the log — expected without a real sidecar)
+
+# In another terminal — feed the dashboard fake transcript chunks:
+MEDHA_BOT_SHARED_SECRET=devsecret pnpm tsx scripts/simulate-transcript.ts <interviewId>
+```
+
+The dashboard's TranscriptPanel fills up; the ⚡ Branching pill flashes on long candidate chunks; `branchingHistory` grows and DeepSeek decisions appear in the server log.
+
+## Budget tracker
+
+Every `getChatModel()` call is wrapped in a LangChain callback that records `{provider, modelId, promptTokens, completionTokens, costUSD, interviewId, purpose}` to an in-memory ring buffer. The dashboard footer shows `"$0.0234 · 12 calls · DeepSeek"` running totals. Query `/api/usage?interviewId=…` for raw entries + summary.

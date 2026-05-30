@@ -38,4 +38,10 @@ export const config = {
     get fixtureOutcome() { return process.env.MEDHA_TEST_FIXTURE_OUTCOME ?? "good-hire"; },
     get baseUrl()     { return process.env.MEDHA_BASE_URL?.trim() ?? "http://localhost:3000"; },
   },
+  // Scope Y — sidecar bot integration. Both optional: when unset, Medha
+  // operates in pure-chat mode (Scope X keyword/timer only).
+  bot: {
+    get baseUrl()      { return optional("MEDHA_BOT_BASE_URL"); },
+    get sharedSecret() { return optional("MEDHA_BOT_SHARED_SECRET"); },
+  },
 } as const;

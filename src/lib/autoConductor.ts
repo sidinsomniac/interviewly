@@ -1,0 +1,401 @@
+// ============================================================
+// Scope X — Chat-keyword Auto-Conductor
+//
+// One long-lived server timer per active interview. Every 5s the
+// timer wakes up and either:
+//   (a) advances if the per-question deadline has passed, or
+//   (b) scans new chat messages from the candidate for a trigger
+//       keyword ("done" / "next" / "ready") and advances on match.
+//
+// Manages state via:
+//   - `interview.autoConduct` in the store (the index, deadline,
+//     lastSeenChatMessageId — durable across tick calls)
+//   - a globalThis-singleton map of NodeJS.Timeout handles (ephemeral
+//     in-memory state; doesn't survive Next.js hot reload)
+//
+// If `pnpm dev` restarts mid-interview, the store still says
+// `autoConduct.active=true` but the timer is gone. The recruiter
+// clicks Start again to revive (the /start route resets state).
+// ============================================================
+import { store } from "@/lib/store";
+import { config } from "@/lib/config";
+import { log } from "@/lib/logger";
+import { resolveOrganizerGuid } from "@/lib/graph/transcript";
+import {
+  fetchChatMessagesSince,
+  stripHtml,
+  type ChatMessage,
+} from "@/lib/graph/chatHistory";
+import { sendChatMessage } from "@/lib/graph/chat";
+import { postQuestionByIndex } from "@/lib/postQuestion";
+import { shouldBranch } from "@/lib/llm/branching";
+import type { BranchingDecision, LiveTranscriptChunk } from "@/types/index";
+
+interface ConductorContext {
+  opts: Required<AutoConductOpts>;
+  botUserGuid: string;
+  organizerGuid: string;
+}
+
+export interface AutoConductOpts {
+  perQuestionTimeoutMs?: number;
+  triggerKeywords?: string[];
+  pollIntervalMs?: number;
+}
+
+const DEFAULTS: Required<AutoConductOpts> = {
+  perQuestionTimeoutMs: 8 * 60_000,
+  triggerKeywords: ["done", "next", "ready"],
+  pollIntervalMs: 5_000,
+};
+
+const globalForAutoConductor = globalThis as unknown as {
+  __medhaAutoConductorTimers?: Map<string, NodeJS.Timeout>;
+  __medhaAutoConductorContexts?: Map<string, ConductorContext>;
+};
+
+const timers: Map<string, NodeJS.Timeout> =
+  globalForAutoConductor.__medhaAutoConductorTimers ?? new Map();
+const contexts: Map<string, ConductorContext> =
+  globalForAutoConductor.__medhaAutoConductorContexts ?? new Map();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForAutoConductor.__medhaAutoConductorTimers = timers;
+  globalForAutoConductor.__medhaAutoConductorContexts = contexts;
+}
+
+export function isAutoConductRunning(interviewId: string): boolean {
+  return timers.has(interviewId);
+}
+
+/**
+ * Resolve and cache the bot + organizer AAD GUIDs once per session.
+ * Used by tick() to filter out chat messages from non-candidates.
+ * In TEST_MODE the chat poll is skipped entirely so resolution failure
+ * is non-fatal (we log and return empty GUIDs).
+ */
+async function buildContext(opts: Required<AutoConductOpts>): Promise<ConductorContext> {
+  if (config.app.testMode) {
+    log.info("autoConductor: TEST_MODE — skipping bot/organizer GUID resolution");
+    return { opts, botUserGuid: "TEST_MODE", organizerGuid: "TEST_MODE" };
+  }
+  const [botUserGuid, organizerGuid] = await Promise.all([
+    resolveOrganizerGuid(config.ms.botUserEmail),
+    resolveOrganizerGuid(config.ms.organizerEmail),
+  ]);
+  return { opts, botUserGuid, organizerGuid };
+}
+
+/**
+ * Start the conductor for an interview. No-ops if already running.
+ * Caller (typically the /auto-conduct/start route) is responsible for
+ * setting interview.autoConduct.active=true + initial state in the store
+ * BEFORE calling this.
+ */
+export async function startAutoConduct(
+  interviewId: string,
+  rawOpts: AutoConductOpts = {}
+): Promise<void> {
+  if (timers.has(interviewId)) {
+    log.warn({ interviewId }, "autoConductor: start no-op — already running");
+    return;
+  }
+  const opts: Required<AutoConductOpts> = {
+    perQuestionTimeoutMs: rawOpts.perQuestionTimeoutMs ?? DEFAULTS.perQuestionTimeoutMs,
+    triggerKeywords: rawOpts.triggerKeywords ?? DEFAULTS.triggerKeywords,
+    pollIntervalMs: rawOpts.pollIntervalMs ?? DEFAULTS.pollIntervalMs,
+  };
+  const ctx = await buildContext(opts);
+  contexts.set(interviewId, ctx);
+
+  // Recursive setTimeout — avoids overlapping ticks if a Graph call is
+  // slow. Each tick schedules the next at the end of its work.
+  const scheduleNext = () => {
+    if (!timers.has(interviewId)) return; // stop requested
+    const handle = setTimeout(async () => {
+      await tick(interviewId);
+      scheduleNext();
+    }, opts.pollIntervalMs);
+    timers.set(interviewId, handle);
+  };
+
+  // Insert a sentinel so isAutoConductRunning returns true between
+  // schedule cycles.
+  timers.set(interviewId, setTimeout(() => {}, 0));
+  log.info({ interviewId, opts }, "autoConductor: started");
+  scheduleNext();
+}
+
+export function stopAutoConduct(interviewId: string): void {
+  const handle = timers.get(interviewId);
+  if (handle) clearTimeout(handle);
+  timers.delete(interviewId);
+  contexts.delete(interviewId);
+  log.info({ interviewId }, "autoConductor: stopped");
+}
+
+/** External (Skip-button-driven) advance — re-uses the same path as a tick advance. */
+export async function forceAdvance(interviewId: string): Promise<void> {
+  await advance(interviewId, "skip");
+}
+
+// ── Scope Y: handleBranching ────────────────────────────────────
+//
+// Called from /api/interviews/[id]/live-transcript when a non-bot,
+// non-organizer final chunk arrives. Decides via DeepSeek whether to
+// post a branching follow-up question (without advancing the index)
+// or just record a "we considered, said no" entry. The
+// branchingInFlight Set debounces concurrent invocations per interview.
+//
+// Caps:
+//   - 2 branches per planned question (enforced here AND in the LLM prompt)
+//   - 50 char minimum on the candidate's chunk (filters "yes" / "I agree")
+const branchingInFlight: Set<string> = new Set();
+const BRANCHING_CAP_PER_QUESTION = 2;
+const BRANCHING_MIN_CHARS = 50;
+
+export async function handleBranching(
+  interviewId: string,
+  chunk: LiveTranscriptChunk
+): Promise<void> {
+  if (branchingInFlight.has(interviewId)) {
+    log.debug({ interviewId }, "handleBranching: skipped (already in flight)");
+    return;
+  }
+
+  const interview = store.get(interviewId);
+  if (!interview) return;
+  if (!interview.autoConduct?.active) return;
+
+  const currentIndex = interview.autoConduct.currentQuestionIndex;
+  if (currentIndex < 0) return; // no question posted yet
+  const questions = interview.questionPlan?.questions ?? [];
+  const currentQuestion = questions[currentIndex];
+  if (!currentQuestion) return;
+  const plannedNext = questions[currentIndex + 1] ?? null;
+
+  if (chunk.text.trim().length < BRANCHING_MIN_CHARS) {
+    log.debug({ interviewId, len: chunk.text.length }, "handleBranching: skipped (chunk too short)");
+    return;
+  }
+
+  // Cap check: count prior branches on THIS question
+  const priorBranches = (interview.branchingHistory ?? []).filter(
+    (d) => d.basedOnQuestionIndex === currentIndex && d.action === "branch"
+  ).length;
+  if (priorBranches >= BRANCHING_CAP_PER_QUESTION) {
+    log.info({ interviewId, currentIndex, priorBranches }, "handleBranching: skipped (cap reached)");
+    return;
+  }
+
+  branchingInFlight.add(interviewId);
+  store.update(interviewId, { branchingInFlight: true });
+
+  try {
+    const decision = await shouldBranch({
+      candidateAnswer: chunk.text,
+      currentQuestion,
+      plannedNext,
+      candidateName: interview.candidateName,
+      priorBranches,
+      interviewId,
+    });
+    decision.basedOnQuestionIndex = currentIndex;
+
+    if (decision.action === "branch" && decision.branchQuestionText) {
+      const html =
+        `<p><strong>↳ Follow-up</strong></p>` +
+        `<p>${decision.branchQuestionText}</p>`;
+      let messageId: string;
+      if (config.app.testMode || !interview.chatId) {
+        messageId = `test-mode-branch-${Date.now()}`;
+        log.warn(
+          { interviewId, chatId: interview.chatId },
+          "handleBranching: TEST_MODE — skipping Graph chat post; stamping decision only"
+        );
+        decision.testMode = true;
+      } else {
+        messageId = await sendChatMessage(interview.chatId, html);
+      }
+      log.info(
+        { interviewId, currentIndex, messageId, branchQuestionText: decision.branchQuestionText },
+        "handleBranching: posted branching follow-up"
+      );
+    } else {
+      log.info(
+        { interviewId, currentIndex, reasoning: decision.reasoning.slice(0, 100) },
+        "handleBranching: continued (no branch)"
+      );
+    }
+
+    const fresh = store.get(interviewId);
+    const newHistory: BranchingDecision[] = [...(fresh?.branchingHistory ?? []), decision];
+    store.update(interviewId, { branchingHistory: newHistory });
+  } catch (err) {
+    log.error(
+      { interviewId, err: err instanceof Error ? err.message : String(err) },
+      "handleBranching failed (non-fatal)"
+    );
+  } finally {
+    branchingInFlight.delete(interviewId);
+    store.update(interviewId, { branchingInFlight: false });
+  }
+}
+
+// ── Internal: tick + advance ───────────────────────────────────
+
+async function tick(interviewId: string): Promise<void> {
+  try {
+    const interview = store.get(interviewId);
+    if (!interview) {
+      log.warn({ interviewId }, "autoConductor: tick — interview gone, stopping");
+      stopAutoConduct(interviewId);
+      return;
+    }
+    if (
+      interview.status === "completed" ||
+      interview.status === "failed" ||
+      !interview.autoConduct?.active
+    ) {
+      log.info(
+        { interviewId, status: interview.status, active: interview.autoConduct?.active },
+        "autoConductor: tick — stop condition met"
+      );
+      stopAutoConduct(interviewId);
+      return;
+    }
+
+    const ac = interview.autoConduct;
+    const ctx = contexts.get(interviewId);
+    if (!ctx) {
+      log.warn({ interviewId }, "autoConductor: tick — missing context (server restarted?), stopping");
+      stopAutoConduct(interviewId);
+      return;
+    }
+
+    // Timeout path
+    if (Date.now() > Date.parse(ac.nextQuestionDeadline)) {
+      await advance(interviewId, "timeout");
+      return;
+    }
+
+    // Chat-keyword path (skipped in TEST_MODE — stub chatId would 404)
+    if (config.app.testMode) return;
+
+    const newMessages = await fetchChatMessagesSince(
+      interview.chatId!,
+      ac.lastSeenChatMessageId
+        ? // we stored only the id; convert by looking it up against the seed time.
+          // Simpler: we track createdDateTime alongside id below by stamping ac.lastSeenChatMessageId
+          // with the id of the most recent message, and rely on fetchChatMessagesSince's
+          // createdDateTime comparison. To keep the API clean we pass undefined here
+          // when we have no message id seed — the start route seeds the id from the
+          // latest message at start time so subsequent calls do filter correctly.
+          // (Behaviour: we re-fetch the last 20 and compare against the timestamp of
+          // the message whose id matches the seed; if not found we fall back to all 20.)
+          await seedSinceDateTime(interview.chatId!, ac.lastSeenChatMessageId)
+        : undefined
+    );
+
+    let triggered: ChatMessage | null = null;
+    let lastSeenId = ac.lastSeenChatMessageId;
+    for (const msg of newMessages) {
+      lastSeenId = msg.id;
+      const fromId = msg.from?.user?.id;
+      if (fromId === ctx.botUserGuid || fromId === ctx.organizerGuid) continue;
+      const text = msg.body?.contentType === "html"
+        ? stripHtml(msg.body.content ?? "")
+        : (msg.body?.content ?? "").trim();
+      if (!text) continue;
+      const lower = text.toLowerCase();
+      const matched = ctx.opts.triggerKeywords.some((kw) =>
+        new RegExp(`\\b${escapeRegex(kw.toLowerCase())}\\b`).test(lower)
+      );
+      if (matched) {
+        triggered = msg;
+        break;
+      }
+    }
+
+    // Persist lastSeen even if we didn't trigger — avoids re-scanning old msgs.
+    if (lastSeenId && lastSeenId !== ac.lastSeenChatMessageId) {
+      store.update(interviewId, {
+        autoConduct: { ...ac, lastSeenChatMessageId: lastSeenId },
+      });
+    }
+
+    if (triggered) {
+      log.info(
+        { interviewId, triggerMessageId: triggered.id, fromId: triggered.from?.user?.id },
+        "autoConductor: keyword trigger detected"
+      );
+      await advance(interviewId, "keyword");
+    }
+  } catch (err) {
+    // Spec: never let the interval crash. Log and keep ticking.
+    log.error(
+      { interviewId, err: err instanceof Error ? err.message : String(err) },
+      "autoConductor: tick failed (continuing)"
+    );
+  }
+}
+
+async function advance(
+  interviewId: string,
+  trigger: "timeout" | "keyword" | "skip"
+): Promise<void> {
+  const interview = store.get(interviewId);
+  if (!interview || !interview.autoConduct?.active) return;
+
+  const ctx = contexts.get(interviewId);
+  const timeoutMs = ctx?.opts.perQuestionTimeoutMs ?? interview.autoConduct.perQuestionTimeoutMs;
+
+  const nextIndex = interview.autoConduct.currentQuestionIndex + 1;
+  const totalQuestions = interview.questionPlan?.questions.length ?? 0;
+
+  if (nextIndex >= totalQuestions) {
+    log.info({ interviewId, trigger, totalQuestions }, "autoConductor: all questions posted");
+    store.update(interviewId, {
+      autoConduct: { ...interview.autoConduct, active: false },
+    });
+    stopAutoConduct(interviewId);
+    return;
+  }
+
+  await postQuestionByIndex(interviewId, nextIndex);
+
+  store.update(interviewId, {
+    autoConduct: {
+      ...interview.autoConduct,
+      currentQuestionIndex: nextIndex,
+      nextQuestionDeadline: new Date(Date.now() + timeoutMs).toISOString(),
+    },
+  });
+
+  log.info(
+    { interviewId, action: "advance", index: nextIndex, trigger },
+    "autoConductor: advanced"
+  );
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Given a chatId + an id-only seed, fetch the latest 20 messages and
+ * return the createdDateTime of the seed message so we can do
+ * timestamp-based filtering. If the seed is gone (e.g., it's older
+ * than the top-20 window), returns undefined → caller treats as
+ * "no seed yet" and accepts all 20.
+ */
+async function seedSinceDateTime(
+  chatId: string,
+  seedId: string
+): Promise<string | undefined> {
+  const recent = await fetchChatMessagesSince(chatId);
+  const seed = recent.find((m) => m.id === seedId);
+  return seed?.createdDateTime;
+}

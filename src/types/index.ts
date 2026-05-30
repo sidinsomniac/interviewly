@@ -72,6 +72,50 @@ export interface InterviewMetadata {
   source: "n8n" | "manual";
   interviewerEmail?: string;
   welcomePostedAt?: string;
+
+  // Scope X: chat-keyword Auto-Conductor state. When `active`, a server
+  // timer polls the meeting chat and advances through questionPlan.questions
+  // on keyword match or per-question timeout. See src/lib/autoConductor.ts.
+  autoConduct?: {
+    active: boolean;
+    startedAt: string;
+    /** 0-based index into questionPlan.questions. -1 means "first advance will post questions[0]". */
+    currentQuestionIndex: number;
+    /** ISO. The next tick fires advance when Date.now() > Date.parse(this). */
+    nextQuestionDeadline: string;
+    lastSeenChatMessageId?: string;
+    perQuestionTimeoutMs: number;
+    triggerKeywords: string[];
+  };
+
+  // Scope Y: live transcript + DeepSeek-driven branching.
+  liveTranscript?: LiveTranscriptChunk[];
+  branchingHistory?: BranchingDecision[];
+  /** True while a shouldBranch LLM call is in flight; UI shows a pulse. */
+  branchingInFlight?: boolean;
+}
+
+export interface LiveTranscriptChunk {
+  speaker: string;
+  text: string;
+  /** ISO. As reported by the sidecar. */
+  timestamp: string;
+  /** false = partial chunk (not persisted); true = finalized utterance (persisted + may trigger branching). */
+  isFinal: boolean;
+}
+
+export interface BranchingDecision {
+  action: "branch" | "continue";
+  /** Present when action="branch" — the follow-up question DeepSeek proposed. */
+  branchQuestionText?: string;
+  /** Plain-English reasoning the LLM gave for the decision. */
+  reasoning: string;
+  /** ISO. When the decision was made. */
+  decidedAt: string;
+  /** The 0-based index of the planned question we were on when deciding (interview.autoConduct.currentQuestionIndex at the time). */
+  basedOnQuestionIndex: number;
+  /** True if the chat-post was stubbed (MEDHA_TEST_MODE=true). */
+  testMode?: boolean;
 }
 
 // ------------------------------------------------------------
