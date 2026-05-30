@@ -42,7 +42,14 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
           <h1 className="text-base font-semibold text-gray-900 truncate">
             {interview.candidateName}
           </h1>
-          <p className="text-xs text-gray-500">{interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</p>
+          <p className="text-xs text-gray-500 flex items-center gap-2">
+            <span>{interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</span>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              (interview.conductMode ?? "manual") === "auto" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-700"
+            }`}>
+              {(interview.conductMode ?? "manual") === "auto" ? "🤖 Auto" : "👤 Manual"}
+            </span>
+          </p>
         </div>
       </header>
 

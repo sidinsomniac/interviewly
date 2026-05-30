@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
     const {
       candidateName, candidateTotalYears, candidateRelevantYears,
       roleAppliedFor, roleId, jdText, chosenExerciseId, meetingTopic,
+      conductMode,
     } = parsed.data;
 
     const schema = getRoleSchema(roleId);
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
       status: "draft",
       postedQuestionIndices: [],
       source: "manual",
+      conductMode,
     });
 
     return NextResponse.json({ ok: true, interview });

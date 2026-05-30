@@ -20,6 +20,7 @@ const FormSchema = z.object({
   roleId: z.string().min(1, "Required"),
   jdText: z.string().optional(),
   meetingTopic: z.string().min(1, "Required"),
+  conductMode: z.enum(["manual", "auto"]),
 });
 
 type FormValues = z.infer<typeof FormSchema>;
@@ -42,6 +43,7 @@ export function NewInterviewForm() {
       roleId: AVAILABLE_ROLES[0]?.roleId ?? "react",
       candidateTotalYears: 3,
       candidateRelevantYears: 3,
+      conductMode: "auto",
     },
   });
 
@@ -119,6 +121,25 @@ export function NewInterviewForm() {
           className={input()}
           placeholder="Paste JD text here to improve question relevance…"
         />
+      </Field>
+
+      <Field label="Interview style" error={errors.conductMode?.message}>
+        <div className="space-y-2">
+          <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+            <input type="radio" value="auto" {...register("conductMode")} className="mt-1" />
+            <span>
+              <span className="block text-sm font-medium text-gray-900">🤖 Auto</span>
+              <span className="block text-xs text-gray-500 mt-0.5">Medha joins automatically, speaks the intro + questions, runs the interview.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+            <input type="radio" value="manual" {...register("conductMode")} className="mt-1" />
+            <span>
+              <span className="block text-sm font-medium text-gray-900">👤 Manual</span>
+              <span className="block text-xs text-gray-500 mt-0.5">I&apos;ll drive the questions from the dashboard (current behavior).</span>
+            </span>
+          </label>
+        </div>
       </Field>
 
       <Field label="Meeting Subject / Topic" error={errors.meetingTopic?.message}>

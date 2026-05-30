@@ -73,6 +73,14 @@ export interface InterviewMetadata {
   interviewerEmail?: string;
   welcomePostedAt?: string;
 
+  /**
+   * Phase G: interview-style selector picked at scheduling.
+   *   - "manual" → recruiter drives (Post Welcome + Start Auto-Conduct buttons, chat keyword triggers).
+   *   - "auto"   → Medha auto-runs by voice + chat (full behavior lands in Phase H).
+   * Defaults to "manual" on read for legacy records that pre-date this field.
+   */
+  conductMode: "manual" | "auto";
+
   // Scope X: chat-keyword Auto-Conductor state. When `active`, a server
   // timer polls the meeting chat and advances through questionPlan.questions
   // on keyword match or per-question timeout. See src/lib/autoConductor.ts.
@@ -232,6 +240,8 @@ export interface CreateInterviewRequest {
   jdText?: string;
   chosenExerciseId?: string;
   meetingTopic: string;
+  /** Phase G: "manual" | "auto" — defaults to "manual" if omitted. */
+  conductMode?: "manual" | "auto";
 }
 export type CreateInterviewResponse =
   | { ok: true; interview: InterviewMetadata }
@@ -270,6 +280,8 @@ export interface ScheduleInterviewRequest {
   interviewerEmail: string;
   scheduledFor?: string;     // ISO; default now + 5 min
   durationMinutes?: number;  // default 45
+  /** Phase G: "manual" | "auto" — defaults to "manual" if omitted. */
+  conductMode?: "manual" | "auto";
 }
 
 export type ScheduleInterviewResponse =
@@ -303,6 +315,7 @@ export const CreateInterviewRequestSchema = z.object({
   jdText: z.string().optional(),
   chosenExerciseId: z.string().optional(),
   meetingTopic: z.string().min(1),
+  conductMode: z.enum(["manual", "auto"]).default("manual"),
 });
 
 export const ScheduleInterviewRequestSchema = z.object({
@@ -323,6 +336,7 @@ export const ScheduleInterviewRequestSchema = z.object({
   interviewerEmail: z.string().email(),
   scheduledFor: z.string().optional(),
   durationMinutes: z.number().optional(),
+  conductMode: z.enum(["manual", "auto"]).default("manual"),
 });
 
 export const PlannedQuestionSchema = z.object({

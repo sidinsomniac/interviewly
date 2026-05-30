@@ -36,6 +36,9 @@ export async function POST(
   if (!interview) {
     return NextResponse.json({ ok: false, error: "Interview not found" }, { status: 404 });
   }
+  // Phase G: log conductMode but don't branch — Phase H wires Mode B's voice
+  // path. Both modes share the transcript-keyword loop today.
+  log.info({ interviewId: id, conductMode: interview.conductMode }, "auto-conduct/start: mode");
   if (!interview.welcomePostedAt) {
     return NextResponse.json(
       { ok: false, error: "Post the welcome + consent message before starting auto-conduct." },

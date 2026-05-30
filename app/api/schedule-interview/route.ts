@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
       postedQuestionIndices: [],
       source: "n8n",
       interviewerEmail: data.interviewerEmail,
+      conductMode: data.conductMode,
     });
 
     log.info({ interviewId: interview.id, meetingId: meeting.onlineMeetingId }, "Interview scheduled");

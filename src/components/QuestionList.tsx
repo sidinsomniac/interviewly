@@ -212,23 +212,52 @@ export function QuestionList({
   const acActive = acStatus?.active ?? false;
   const acIndex = acStatus?.currentQuestionIndex ?? -1;
   const triggerKeywords = interview.autoConduct?.triggerKeywords ?? ["done", "next", "ready"];
+  // Phase G: defensive read — older records pre-date this field.
+  const mode = interview.conductMode ?? "manual";
 
   return (
     <div className="p-4 space-y-3">
-      {/* Sub-Phase E4: one-click welcome+consent button */}
-      <div className="flex justify-end">
-        <button
-          onClick={postWelcome}
-          disabled={welcomeSent || postingWelcome}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {postingWelcome ? <Spinner size="sm" /> : null}
-          🤖 {welcomeSent ? "Welcome sent ✓" : "Post Welcome + Consent"}
-        </button>
-      </div>
+      {/* Phase G: Mode B notice replaces the welcome + inactive Auto-Conduct
+          card when conductMode === "auto". The active status row (below)
+          still renders for both modes; per-question post buttons stay too
+          as a debug fallback. Mode B's voice behavior lands in Phase H. */}
+      {mode === "auto" && !acActive && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 flex items-center gap-3">
+          <div className="text-2xl">🤖</div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-indigo-900">Auto mode — Medha will run this interview</p>
+            <p className="text-xs text-indigo-800 mt-0.5">
+              Welcome + questions are spoken automatically once the candidate joins. (Phase H pending.)
+            </p>
+          </div>
+          <button
+            onClick={startAutoConduct}
+            disabled={autoPending !== null || acActive}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {autoPending === "start" ? <Spinner size="sm" /> : null}
+            Start Mode B (debug)
+          </button>
+        </div>
+      )}
 
-      {/* Scope X: Auto-Conduct control row */}
-      {welcomeSent && !acActive && (
+      {/* Sub-Phase E4: one-click welcome+consent button (manual mode only) */}
+      {mode === "manual" && (
+        <div className="flex justify-end">
+          <button
+            onClick={postWelcome}
+            disabled={welcomeSent || postingWelcome}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {postingWelcome ? <Spinner size="sm" /> : null}
+            🤖 {welcomeSent ? "Welcome sent ✓" : "Post Welcome + Consent"}
+          </button>
+        </div>
+      )}
+
+      {/* Scope X: Auto-Conduct control row (manual mode only — Auto mode
+          shows the indigo notice above instead) */}
+      {mode === "manual" && welcomeSent && !acActive && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-center gap-4">
           <div className="flex-shrink-0 text-2xl">🎙️</div>
           <div className="flex-1 min-w-0">
