@@ -32,6 +32,10 @@ export type InterviewStatus =
   | "scheduled"
   | "in_progress"
   | "ended"
+  // Phase-P3 (2026-06-01) — set at the top of finalize() while the probe
+  // form is being generated + mailed. Drives the "Generating probe form"
+  // overlay on the live dashboard so end-of-interview isn't silent.
+  | "completing"
   | "completed"
   | "failed";
 
@@ -71,6 +75,15 @@ export interface InterviewMetadata {
    * the .xlsx is no longer persisted to disk.
    */
   probeFormSentAt?: string;
+
+  /** Phase-P3 (2026-06-01) — ISO set at the top of finalize() when the
+   *  interview transitions to "completing". Lets the dashboard show how
+   *  long generation has been running. */
+  finalizingStartedAt?: string;
+
+  /** Round-4 (2026-06-01) — ISO set when finalize() flips status to
+   *  "completed" (after the minimum-visible hold). */
+  completedAt?: string;
 
   // Sub-Phase E: origin tracking for the n8n handoff. "n8n" interviews
   // come in through /api/schedule-interview; "manual" through the
@@ -142,6 +155,13 @@ export interface InterviewMetadata {
      * against bot utterances leaking through the speaker filter.
      */
     lastHumanActivityAt?: string;
+    /** Phase-P2 (2026-06-01) — ISO of the last posted branch follow-up.
+     *  Anchors the branching cooldown in handleBranching. */
+    lastBranchAt?: string;
+    /** Phase-P2 (2026-06-01) — ISO when the current planned question was
+     *  posted (stamped in postQuestionByIndex). Cooldown fallback anchor
+     *  before any branch has fired on this question. */
+    currentQuestionPostedAt?: string;
   };
 
   // Scope Y: live transcript + DeepSeek-driven branching.
@@ -284,6 +304,27 @@ export interface FilledProbeForm {
   competencies: CompetencyEvaluation[];
 }
 
+// Phase-P3 (2026-06-01) — simple-assessment shape for non-technical roles
+// (customer-service). Produced by mapTranscriptToSimpleAssessment and
+// consumed by generateSimpleProbeForm. Deliberately NOT FilledProbeForm:
+// the fixed Rating vocabulary doesn't fit the typed CompetencyEvaluation
+// proficiency enum, and there are no Excel cell mappings — the simple
+// generator builds a sheet from scratch.
+export interface SimpleAssessmentRow {
+  category: string;
+  competency: string;
+  rating: "Exceeds expectations" | "Meets expectations" | "Below expectations" | "Not assessed";
+  evidence: string;
+  notes: string;
+}
+export interface SimpleAssessment {
+  rows: SimpleAssessmentRow[];
+  verdict: "Selected" | "Borderline" | "Needs Another Round";
+  /** 0-1, computed in code from the rating mix. */
+  confidence: number;
+  recommendation: string;
+}
+
 export interface ProbeFormMeta {
   app: "interviewly";
   version: string;
@@ -352,7 +393,7 @@ export interface ScheduleInterviewRequest {
     recommendation: string;
   };
   interviewerEmail: string;
-  scheduledFor?: string;     // ISO; default now + 5 min
+  scheduledFor?: string;     // ISO; default now + 1 min
   durationMinutes?: number;  // default 45
   /** Phase G: "manual" | "auto" — defaults to "manual" if omitted. */
   conductMode?: "manual" | "auto";
@@ -476,8 +517,8 @@ export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
 export const ScreeningScoreSchema = z.object({
   verdict: z.enum(["selected", "rejected", "borderline"]),
   confidence: z.number().min(0).max(1),
-  strengths: z.array(z.string()).min(1).max(6),
-  gaps: z.array(z.string()).min(1).max(6),
+  strengths: z.array(z.string()).min(0).max(10),
+  gaps: z.array(z.string()).min(0).max(10),
   summary: z.string().min(20),
   recommendedDifficultyBias: z.enum(["easy", "medium", "hard"]),
 });

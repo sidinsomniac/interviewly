@@ -16,6 +16,8 @@
 // of their local timezone.
 // ============================================================
 
+import { config } from "@/lib/config";
+
 function formatIst(iso: string): string {
   try {
     return new Intl.DateTimeFormat("en-IN", {
@@ -64,7 +66,7 @@ function wrapHtml(bodyHtml: string): string {
 </head>
 <body>
   <div class="container">
-    <div class="brand">Medha</div>
+    <img src="${config.app.baseUrl.replace(/\/$/, "")}/images/medha_logo_color.png" alt="Medha" width="120" style="display:block;margin-bottom:24px;" />
     ${bodyHtml}
     <div class="footer">Sent by Medha — AI-powered interviewing.</div>
   </div>
@@ -131,6 +133,54 @@ export function rejectionEmail(
     ${reasonBlock}
     <p>This is not a reflection of your abilities — we encourage you to apply again as new roles open up. We genuinely wish you the very best for what's ahead.</p>
     <p>Warm regards,<br/>The Hiring Team</p>
+  `);
+  return { subject, html };
+}
+
+// ── 1c. Recruiter rejection notification (to recruiter) ────────
+// Phase P (2026-06-01) — dual-send audit trail. When a candidate is
+// rejected via /api/screen/reject (manual button or auto-countdown),
+// the recruiter receives this notification in parallel with the
+// candidate's polite mailer. Distinct subject line + body wording
+// so the recruiter's inbox shows "Rejection sent: ..." entries
+// alongside "Interview scheduled: ..." entries for unambiguous audit.
+
+export interface RecruiterRejectedEmailOpts {
+  recruiterName?: string;
+  candidateName: string;
+  candidateEmail: string;
+  roleAppliedFor: string;
+  reason?: string;
+  /** Distinguishes the audit trail in the recruiter's inbox. */
+  trigger: "manual" | "auto";
+  /** Confidence at decision time (0-1), when available. Renders as a small inline tag. */
+  confidence?: number;
+}
+
+export function recruiterRejectedEmail(
+  opts: RecruiterRejectedEmailOpts
+): { subject: string; html: string } {
+  const subject = `Rejection sent: ${opts.candidateName} — ${opts.roleAppliedFor}`;
+  const greeting = opts.recruiterName
+    ? `Hi ${escapeHtml(opts.recruiterName.split(" ")[0])},`
+    : "Hi,";
+  const triggerLine = opts.trigger === "auto"
+    ? `<p style="color:#616161;font-size:13px;">Auto-rejected after the configured threshold countdown elapsed.</p>`
+    : `<p style="color:#616161;font-size:13px;">Manually rejected by recruiter.</p>`;
+  const reasonBlock = opts.reason?.trim()
+    ? `<p><strong>Reason on file:</strong> ${escapeHtml(opts.reason.trim())}</p>`
+    : "";
+  const confidenceTag = typeof opts.confidence === "number"
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#FAEEDA;color:#854F0B;font-size:12px;margin-left:6px;">conf ${Math.round(opts.confidence * 100)}%</span>`
+    : "";
+  const html = wrapHtml(`
+    <h1>Candidate rejected</h1>
+    <p>${greeting}</p>
+    <p>You rejected <strong>${escapeHtml(opts.candidateName)}</strong> for the <strong>${escapeHtml(opts.roleAppliedFor)}</strong> role.${confidenceTag}</p>
+    <p>A polite rejection email has been sent to <a href="mailto:${escapeAttr(opts.candidateEmail)}">${escapeHtml(opts.candidateEmail)}</a>.</p>
+    ${reasonBlock}
+    ${triggerLine}
+    <p style="margin-top:24px;">— Medha</p>
   `);
   return { subject, html };
 }

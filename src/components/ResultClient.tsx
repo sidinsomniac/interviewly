@@ -92,8 +92,10 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
         )}
       </BentoCard>
 
-      {/* Ended-state — interview wrapped up, finalize in flight */}
-      {!isReady(interview) && interview.status === "ended" && (
+      {/* Ended-state — interview wrapped up, finalize in flight. Phase-P3:
+          also covers "completing" so a direct nav to /result during
+          generation shows the spinner instead of a blank page. */}
+      {!isReady(interview) && (interview.status === "ended" || interview.status === "completing") && (
         <BentoCard span="col-span-12" accent="warning">
           <div className="flex items-start gap-4">
             <div className="text-teams-warning"><Spinner size="lg" /></div>
@@ -133,7 +135,7 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
             >
               <p className="text-sm text-[color:var(--medha-text-primary)]">
                 Sent to <strong>{interview.recruiterEmail}</strong> at{" "}
-                {new Date(interview.probeFormSentAt!).toLocaleTimeString()}.
+                <ClientTime iso={interview.probeFormSentAt!} />.
               </p>
               <p className="text-xs text-[color:var(--medha-text-secondary)] mt-2">
                 {interview.postedQuestionIndices?.length ?? 0} questions posted ·{" "}
@@ -217,4 +219,18 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
       )}
     </BentoGrid>
   );
+}
+
+// Round-4 (2026-06-01) — hydration fix. toLocaleTimeString() resolves the
+// runtime's default locale, which differs server (en-GB → "pm") vs client
+// (en-US → "PM") → SSR mismatch. Defer to client-only with an explicit
+// en-IN locale; render "…" until mount.
+function ClientTime({ iso }: { iso: string }) {
+  const [val, setVal] = useState<string>("");
+  useEffect(() => {
+    setVal(
+      new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })
+    );
+  }, [iso]);
+  return <span suppressHydrationWarning>{val || "…"}</span>;
 }

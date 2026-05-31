@@ -30,6 +30,17 @@ const RejectBodySchema = z.object({
    *  future UI) can pass it through. Capped at 500 chars to keep the email
    *  body sane. */
   reason: z.string().max(500).optional(),
+  /** Phase P (2026-06-01) — recipient of the audit notification. Optional
+   *  (n8n direct callers may omit); if absent we just skip the recruiter
+   *  send and log. */
+  recruiterEmail: z.string().email().optional(),
+  /** "manual" = user clicked Reject Now / Confirm Reject; "auto" = the
+   *  10s countdown elapsed. Drives the body wording in the recruiter
+   *  notification. Defaults to "manual" if absent. */
+  trigger: z.enum(["manual", "auto"]).optional(),
+  /** Confidence at decision time (0-1). Renders as a small pill in the
+   *  recruiter notification. Optional. */
+  confidence: z.number().min(0).max(1).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -41,7 +52,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const { profile, roleId, reason } = parsed.data;
+  const { profile, roleId, reason, recruiterEmail, trigger, confidence } = parsed.data;
 
   // Server-side guard: refuse to send if no candidate email. The client
   // also disables the Reject button in this case, but a defensive check
@@ -89,6 +100,47 @@ export async function POST(req: NextRequest) {
     { candidateName: profile.candidateName, to: profile.candidateEmail, sentAt },
     "screen/reject: rejection email sent"
   );
+
+  // Phase P (2026-06-01) — recruiter audit notification. Independent of
+  // the candidate send: if it fails we log a warn but don't 502 the route
+  // (the candidate already received their mailer; the user-visible action
+  // was "send rejection to candidate" which succeeded).
+  let recruiterOk: boolean | null = null;
+  if (recruiterEmail && recruiterEmail.includes("@")) {
+    const { recruiterRejectedEmail } = await import("@/lib/mail/templates");
+    const recruiterTpl = recruiterRejectedEmail({
+      candidateName: profile.candidateName,
+      candidateEmail: profile.candidateEmail,
+      roleAppliedFor: roleDisplay,
+      reason,
+      trigger: trigger ?? "manual",
+      confidence,
+    });
+    recruiterOk = await sendMail({
+      to: recruiterEmail,
+      subject: recruiterTpl.subject,
+      html: recruiterTpl.html,
+    });
+    if (!recruiterOk) {
+      log.warn(
+        { recruiterEmail, candidateName: profile.candidateName },
+        "screen/reject: recruiter notification sendMail failed (candidate already notified)"
+      );
+    }
+  }
+  log.info(
+    {
+      candidateOk: true, // we wouldn't be here if it had failed — route 502s above
+      recruiterOk,
+      candidateEmail: profile.candidateEmail,
+      recruiterEmail: recruiterEmail ?? null,
+      trigger: trigger ?? "manual",
+    },
+    recruiterEmail
+      ? "screen/reject: dual send complete"
+      : "screen/reject: recruiter notification skipped (no recruiterEmail in body)"
+  );
+
   // No store.create — rejected candidates aren't persisted as interviews.
   return NextResponse.json({ ok: true, sentAt });
 }

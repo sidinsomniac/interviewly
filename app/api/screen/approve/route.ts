@@ -5,7 +5,7 @@
 //
 // Steps:
 //   1. Validate body via Zod (profile + score schemas).
-//   2. Default scheduledFor to now + 5 min, conductMode to "auto", duration 45 min.
+//   2. Default scheduledFor to now + 1 min, conductMode to "auto", duration 45 min.
 //   3. Build attendees array, skipping candidate if email is "".
 //   4. createTeamsMeeting via the existing Graph calendar helper.
 //   5. Synthesize a JD blob from profile + jdText so the question planner

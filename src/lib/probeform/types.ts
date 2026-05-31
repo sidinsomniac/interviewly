@@ -61,6 +61,19 @@ export interface RoleSchema {
   categories: CategoryDef[];
   /** Optional hands-on exercises associated with the role. Empty for Phase 1.5. */
   exercises?: ExerciseDef[];
+  /** Phase-P2 (2026-06-01) — override the planner's flexible 45-min budget
+   *  with an EXACT question count. When set, generateQuestionPlan hard-anchors
+   *  to this number instead of the budget heuristic. Range 3-30. */
+  targetQuestionCount?: number;
+  /** Phase-P2 (2026-06-01) — per-question branching cap, overrides the global
+   *  default in autoConductor.handleBranching. Range 0-2.
+   *  customer-service: 1; tech roles: unset → default. */
+  maxBranchesPerQuestion?: number;
+  /** Phase-P3 (2026-06-01) — route this role to the built-in single-sheet
+   *  generateSimpleProbeForm() instead of the xlsx-template filler. Set on
+   *  roles with no dedicated template (customer-service). When true, the
+   *  excelTemplate/sheetName fields are ignored at generation time. */
+  useSimpleProbeForm?: boolean;
 }
 
 /** Flatten a schema's categories into a single CompetencyRow list. */

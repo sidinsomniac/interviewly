@@ -39,25 +39,29 @@ export async function shouldBranch(opts: {
   plannedNext: PlannedQuestion | null;
   candidateName: string;
   priorBranches: number;
+  /** Phase-P2 (2026-06-01) — role-driven per-question cap, passed from
+   *  autoConductor.handleBranching (roleSchema.maxBranchesPerQuestion ?? 2). */
+  maxBranches: number;
+  /** Round-4 (2026-06-01) — role of the interview; drives the CS-specific
+   *  lean-toward-branching note. */
+  roleId: string;
   interviewId?: string;
 }): Promise<BranchingDecision> {
-  const { candidateAnswer, currentQuestion, plannedNext, candidateName, priorBranches, interviewId } = opts;
+  const { candidateAnswer, currentQuestion, plannedNext, candidateName, priorBranches, maxBranches, roleId, interviewId } = opts;
 
-  const systemPrompt = `You are deciding whether to ask a branching follow-up question to ${candidateName}'s last answer, or to continue to the next planned question. You are part of an automated interview pipeline at Publicis Sapient.
+  let systemPrompt = `You are deciding whether to ask a branching follow-up question to ${candidateName}'s last answer, or to continue to the next planned question. You are part of an automated interview pipeline at Publicis Sapient.
 
-Lean toward branching when the answer leaves obvious depth on the table — a senior interviewer would probe one more layer. Don't branch reflexively, but also don't accept a merely-correct answer that skips trade-offs, edge cases, or specific implementation detail. When in doubt between "continue" and "branch", and the candidate hasn't named at least one trade-off or specific detail, prefer "branch".
+Default to CONTINUE. Branch only when the candidate said something genuinely surprising, contradictory, or under-explored that a senior interviewer would feel compelled to probe. A merely-correct or technically-fine answer is NOT a reason to branch.
 
 Decision rules:
-1. Branch when the answer contains a specific, probeable claim worth going deeper on. Good triggers:
+1. Branch when the answer contains a specific, probeable claim genuinely worth one more layer. Good triggers:
    - Concrete technologies named with a non-trivial choice: "we used Redis for caching" → probe cache-invalidation strategy
-   - Past project descriptions with technical details: "I built X with Y" → probe how Y handles edge case Z
+   - Past project descriptions with surprising technical details: "I built X with Y" → probe how Y handles edge case Z
    - Architectural decisions stated without justification: "we went with microservices" → probe what alternative they considered
-2. Do NOT branch on:
-   - Brief confirmations ("yes", "sure", "I agree")
-   - Generic statements ("I have a lot of experience with React")
-   - Answers that already fully cover the competency we're probing (trade-offs + edge cases + specific implementation)
-3. Hard cap: priorBranches is ${priorBranches}. If this number is >= 3, return action: continue regardless of how interesting the answer is — we must not over-branch within one planned question.
-4. Lean toward branching but stay disciplined: the trigger taxonomy in rule 1 must apply. Don't branch on confirmations, generic statements, or answers that already cover the trade-offs + edge cases + specific detail comprehensively. When the answer is technically correct but shallow, prefer branching — most candidates leave depth on the table.
+   - A contradiction or claim that doesn't add up
+2. Skip branching on: generic answers, restatements, simple yes/no, answers shorter than 3 sentences, brief confirmations ("yes", "sure"), and answers that already cover trade-offs + edge cases + specific implementation.
+3. Hard cap: at most ${maxBranches} follow-up(s) on this question. You have already posted ${priorBranches} on this question. If priorBranches >= ${maxBranches}, return action: continue regardless of how interesting the answer is.
+4. If unsure whether to branch, lean continue. Over-probing makes the interview feel robotic — a real interviewer only occasionally digs deeper, they don't interrogate every answer.
 
 When branching, branchQuestionText must be:
 - ONE open-ended question (not yes/no)
@@ -73,6 +77,13 @@ Output ONLY a single JSON object — no prose, no markdown fences — with this 
 ${DECISION_SHAPE}
 
 When action is "continue", set branchQuestionText to null.`;
+
+  // Round-4 (2026-06-01) — customer-service is a booth demo; the audience
+  // needs to SEE Medha probe. Override the disciplined default-CONTINUE
+  // stance for this role only.
+  if (roleId === "customer-service") {
+    systemPrompt += `\n\nROLE NOTE: This is a customer-service booth demo. The audience needs to SEE Medha ask intelligent follow-ups. LEAN TOWARD BRANCHING when the candidate gives any concrete detail (an employer name, a story, a number, a hobby). Skip only on yes/no, single-word answers, or near-silence.`;
+  }
 
   const humanPrompt = `Candidate's answer to the current planned question:
 ---

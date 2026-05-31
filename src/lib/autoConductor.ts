@@ -20,7 +20,7 @@
 import { store } from "@/lib/store";
 import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
-import { resolveOrganizerGuid } from "@/lib/graph/transcript";
+import { getBotUserGuid, resolveOrganizerGuid } from "@/lib/graph/transcript";
 import {
   fetchChatMessagesSince,
   stripHtml,
@@ -29,6 +29,8 @@ import {
 import { sendChatMessage } from "@/lib/graph/chat";
 import { postQuestionByIndex } from "@/lib/postQuestion";
 import { shouldBranch } from "@/lib/llm/branching";
+import { getRoleSchema } from "@/lib/probeform/registry";
+import type { RoleSchema } from "@/lib/probeform/types";
 import type { BranchingDecision, LiveTranscriptChunk } from "@/types/index";
 
 interface ConductorContext {
@@ -102,8 +104,11 @@ async function buildContext(opts: Required<AutoConductOpts>): Promise<ConductorC
       "the bot user and the recruiter cannot share an identity"
     );
   }
+  // Phase P (2026-06-01) — getBotUserGuid centralizes the
+  // `config.ms.botUserEmail`-to-GUID resolution so the wait-for-
+  // candidate loop in /auto-conduct/start can use the same helper.
   const [botUserGuid, organizerGuid] = await Promise.all([
-    resolveOrganizerGuid(config.ms.botUserEmail),
+    getBotUserGuid(),
     resolveOrganizerGuid(config.ms.organizerEmail),
   ]);
   return { opts, botUserGuid, organizerGuid };
@@ -176,14 +181,33 @@ export async function forceAdvance(interviewId: string): Promise<void> {
 // or just record a "we considered, said no" entry. The
 // branchingInFlight Set debounces concurrent invocations per interview.
 //
-// Caps:
-//   - 3 branches per planned question (enforced here AND in the LLM prompt)
-//   - 30 char minimum on the candidate's chunk (filters "yes" / "I agree")
-//   - +90s deadline extension per branch (gives candidate time to answer the follow-up)
+// Branching config (Round-4, 2026-06-01) — now ROLE-AWARE. The P3 global
+// values (120 chars / 45s / 25% skip) still fired zero on customer-service
+// because CS answers are short. CS gets looser thresholds so the booth
+// audience SEES Medha ask follow-ups; tech roles keep the disciplined P3
+// values. The +90s deadline extension is role-independent.
 const branchingInFlight: Set<string> = new Set();
-const BRANCHING_CAP_PER_QUESTION = 3;
-const BRANCHING_MIN_CHARS = 30;
 const BRANCHING_DEADLINE_EXTEND_MS = 90_000;
+
+function getBranchingConfig(role: RoleSchema | undefined): {
+  COOLDOWN_MS: number;
+  MIN_CHARS: number;
+  RANDOM_SKIP_PROB: number;
+  CAP: number;
+} {
+  if (role?.roleId === "customer-service") {
+    // 60 chars ≈ 1 short sentence; 30s cooldown; 10% skip (branches almost
+    // always fire when the LLM says yes); CAP 2 (≥1 visible follow-up).
+    return { COOLDOWN_MS: 30_000, MIN_CHARS: 60, RANDOM_SKIP_PROB: 0.1, CAP: 2 };
+  }
+  // tech roles (and unset)
+  return {
+    COOLDOWN_MS: 45_000,
+    MIN_CHARS: 120,
+    RANDOM_SKIP_PROB: 0.25,
+    CAP: role?.maxBranchesPerQuestion ?? 2,
+  };
+}
 
 export async function handleBranching(
   interviewId: string,
@@ -205,17 +229,47 @@ export async function handleBranching(
   if (!currentQuestion) return;
   const plannedNext = questions[currentIndex + 1] ?? null;
 
-  if (chunk.text.trim().length < BRANCHING_MIN_CHARS) {
-    log.debug({ interviewId, len: chunk.text.length }, "handleBranching: skipped (chunk too short)");
-    return;
-  }
-
-  // Cap check: count prior branches on THIS question
+  // Round-4 (2026-06-01) — role-aware branching config. CS gets looser
+  // thresholds; tech roles keep the disciplined values + role-driven cap.
+  const roleSchema = getRoleSchema(interview.roleId);
+  const cfg = getBranchingConfig(roleSchema);
+  const maxBranches = cfg.CAP;
+  const chunkLen = chunk.text.trim().length;
   const priorBranches = (interview.branchingHistory ?? []).filter(
     (d) => d.basedOnQuestionIndex === currentIndex && d.action === "branch"
   ).length;
-  if (priorBranches >= BRANCHING_CAP_PER_QUESTION) {
-    log.info({ interviewId, currentIndex, priorBranches }, "handleBranching: skipped (cap reached)");
+
+  // Single consolidated diagnostic so Sid can grep "branching: decision".
+  // skippedBy ∈ min_chars | cap | cooldown | random | llm_continue | null.
+  const logDecision = (decision: string, skippedBy: string | null) =>
+    log.info(
+      { interviewId, decision, chunkLen, branchesUsed: priorBranches, cap: maxBranches, skippedBy },
+      "branching: decision"
+    );
+
+  if (chunkLen < cfg.MIN_CHARS) {
+    logDecision("skip", "min_chars");
+    return;
+  }
+
+  if (priorBranches >= maxBranches) {
+    logDecision("skip", "cap");
+    return;
+  }
+
+  // Cooldown: don't branch within COOLDOWN_MS of the last branch OR the main
+  // question post on this question.
+  const cooldownAnchor =
+    interview.autoConduct.lastBranchAt ??
+    interview.autoConduct.currentQuestionPostedAt;
+  if (cooldownAnchor && Date.now() - Date.parse(cooldownAnchor) < cfg.COOLDOWN_MS) {
+    logDecision("skip", "cooldown");
+    return;
+  }
+
+  // Randomized skip even when everything else passes.
+  if (Math.random() < cfg.RANDOM_SKIP_PROB) {
+    logDecision("skip", "random");
     return;
   }
 
@@ -229,14 +283,17 @@ export async function handleBranching(
       plannedNext,
       candidateName: interview.candidateName,
       priorBranches,
+      maxBranches,
+      roleId: interview.roleId,
       interviewId,
     });
     decision.basedOnQuestionIndex = currentIndex;
+    logDecision(decision.action, decision.action === "continue" ? "llm_continue" : null);
 
     if (decision.action === "branch" && decision.branchQuestionText) {
-      const html =
-        `<p><strong>↳ Follow-up</strong></p>` +
-        `<p>${decision.branchQuestionText}</p>`;
+      // Round-4 (2026-06-01) — drop the "↳ Follow-up" prefix; candidate sees
+      // just the question text, same as the main questions.
+      const html = `<p>${decision.branchQuestionText}</p>`;
       let messageId: string;
       if (config.app.testMode || !interview.chatId) {
         messageId = `test-mode-branch-${Date.now()}`;
@@ -266,7 +323,13 @@ export async function handleBranching(
         );
         const extendedDeadline = new Date(currentMs + BRANCHING_DEADLINE_EXTEND_MS).toISOString();
         store.update(interviewId, {
-          autoConduct: { ...freshForExtend.autoConduct, nextQuestionDeadline: extendedDeadline },
+          autoConduct: {
+            ...freshForExtend.autoConduct,
+            nextQuestionDeadline: extendedDeadline,
+            // Phase-P2 — stamp the cooldown anchor so the next branch on this
+            // question waits BRANCHING_COOLDOWN_MS from now.
+            lastBranchAt: new Date().toISOString(),
+          },
         });
         log.info(
           {

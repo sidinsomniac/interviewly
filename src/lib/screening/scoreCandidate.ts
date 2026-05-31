@@ -38,7 +38,7 @@ export async function scoreCandidate(
     2
   );
 
-  const systemPrompt = `You are a senior hiring panel member at Publicis Sapient scoring a candidate for the ${roleSchema.displayName} role. Decide whether to advance them to an interview based on resume signal alone.
+  let systemPrompt = `You are a senior hiring panel member at Publicis Sapient scoring a candidate for the ${roleSchema.displayName} role. Decide whether to advance them to an interview based on resume signal alone.
 
 Be honest. Lean "borderline" when uncertain — that's the right call when the resume is thin or ambiguous. "selected" requires clear evidence the candidate covers most of the rubric's competencies. "rejected" requires clear evidence of major gaps.
 
@@ -57,6 +57,13 @@ ${rubricJson}
 Output ONLY a single JSON object — no prose, no markdown fences — with this exact shape:
 
 ${SCORE_SHAPE}`;
+
+  // Phase-P2 (2026-06-01) — permissive, intent-based scoring for the
+  // non-technical customer-service booth path. Appended after the generic
+  // prompt so it overrides the "selected requires clear evidence" bar above.
+  if (roleSchema.roleId === "customer-service") {
+    systemPrompt += `\n\nROLE-SPECIFIC NOTE: This is an entry-level customer-facing role. Bar is INTENT and basic communication, not prior experience. Candidates with a steady work record, willingness to learn, and basic written English should score "selected" with confidence >= 0.7. Reject only on clear red flags (dishonesty, refusal to engage, fundamental communication breakdown). Strengths/gaps should focus on the rubric's soft-skill rows, not technical depth.`;
+  }
 
   const humanPrompt = `Candidate profile:
 ${JSON.stringify(profile, null, 2)}

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     );
 
     // Default scheduling 5 min from now (for demo) if not provided.
-    const scheduledFor = data.scheduledFor ?? new Date(Date.now() + 5 * 60_000).toISOString();
+    const scheduledFor = data.scheduledFor ?? new Date(Date.now() + 1 * 60_000).toISOString();
     const duration = data.durationMinutes ?? 45;
     const endIso = new Date(new Date(scheduledFor).getTime() + duration * 60_000).toISOString();
 

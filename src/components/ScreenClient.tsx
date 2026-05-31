@@ -53,8 +53,8 @@ export function ScreenClient({
     resumeText: string;
   } | null>(null);
   const [scheduledFor, setScheduledFor] = useState<string>(() => {
-    // Default to "now + 5 min" in local datetime-local format.
-    const d = new Date(Date.now() + 5 * 60_000);
+    // Default to "now + 1 min" in local datetime-local format.
+    const d = new Date(Date.now() + 1 * 60_000);
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
@@ -153,7 +153,7 @@ export function ScreenClient({
     }
   }
 
-  async function handleReject() {
+  async function handleReject(trigger: "manual" | "auto") {
     if (!report || !canSendRejection) return;
     setRejecting(true);
     setError(null);
@@ -164,6 +164,12 @@ export function ScreenClient({
         body: JSON.stringify({
           profile: report.profile,
           roleId,
+          // Phase P (2026-06-01) — dual-send context. recruiterEmail
+          // drives the audit notification; trigger distinguishes manual
+          // vs auto-countdown; confidence pills the LLM's certainty.
+          recruiterEmail: recruiterEmail.trim() || undefined,
+          trigger,
+          confidence: report.score.confidence,
         }),
       });
       const data = await res.json();
@@ -183,7 +189,7 @@ export function ScreenClient({
   useEffect(() => {
     if (!autoRejectActive) return;
     if (autoRejectSecondsLeft <= 0) {
-      void handleReject();
+      void handleReject("auto");
       return;
     }
     const t = setTimeout(
@@ -200,6 +206,11 @@ export function ScreenClient({
     return (
       <BentoGrid>
         <BentoCard span="col-span-12" hero>
+          {/* Round-4 (2026-06-01) — Medha logo + wordmark header. */}
+          <div className="flex items-center gap-2 mb-3">
+            <img src="/images/medha_logo_color.png" alt="" className="h-7" />
+            <span className="text-lg font-semibold text-teams-primary">Medha</span>
+          </div>
           <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-teams-primary/10 px-3 py-1 text-xs font-medium text-teams-primary ring-1 ring-teams-primary/20">
             <SparkleIcon className="h-3.5 w-3.5" />
             Screening
@@ -502,7 +513,7 @@ export function ScreenClient({
             </button>
             <button
               type="button"
-              onClick={handleReject}
+              onClick={() => handleReject("manual")}
               disabled={rejecting}
               className="inline-flex items-center gap-2 rounded-lg bg-teams-error px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-teams-error/30 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
             >

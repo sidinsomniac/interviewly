@@ -31,7 +31,7 @@ import { getRoleSchema } from "@/lib/probeform/registry";
 import { loadFixtureBundle } from "@/lib/fixtures";
 import { stopAutoConduct } from "@/lib/autoConductor";
 import { cancelScheduledStart } from "@/lib/interviewScheduler";
-import type { TranscriptSegment } from "@/types/index";
+import type { TranscriptSegment, FilledProbeForm, SimpleAssessment } from "@/types/index";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -77,6 +77,14 @@ export async function endInterview(
 export async function finalize(id: string, injectedVttSegments?: TranscriptSegment[]): Promise<void> {
   const interview = store.get(id);
   if (!interview) return;
+
+  // Phase-P3 (2026-06-01) — flip to "completing" the moment finalize starts,
+  // so the live dashboard can show a "Generating probe form" overlay instead
+  // of a silent jump. The terminal "completed"/"failed" updates below still
+  // fire as before.
+  store.update(id, { status: "completing", finalizingStartedAt: new Date().toISOString() });
+  // Round-4 (2026-06-01) — anchor for the minimum-visible hold below.
+  const finalizingStartedAtMs = Date.now();
 
   // Scope X: end-interview always wins. If the auto-conductor is still
   // ticking, stop it BEFORE we start the (potentially long) Graph polling
@@ -231,23 +239,52 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
       "Transcript assembled"
     );
 
-    const filledForm = await mapTranscriptToProbeForm({
-      schema,
-      interviewId: id,
-      candidateName: interview.candidateName,
-      roleAppliedFor: interview.roleAppliedFor,
-      candidateTotalYears: interview.candidateTotalYears,
-      candidateRelevantYears: interview.candidateRelevantYears,
-      transcript,
-      questionPlan: interview.questionPlan!,
-    });
+    // Phase-P3 (2026-06-01) — non-technical roles (customer-service) use a
+    // charitable simple-assessment mapper + a built-in single-sheet
+    // generator instead of the tech FilledProbeForm + xlsx-template path.
+    // synthesizeFilledForm keeps the result page's summary card working.
+    let filledForm: FilledProbeForm;
+    let simpleAssessment: SimpleAssessment | null = null;
+    if (schema.useSimpleProbeForm) {
+      const { mapTranscriptToSimpleAssessment, synthesizeFilledForm } =
+        await import("@/lib/llm/simple-assessment");
+      simpleAssessment = await mapTranscriptToSimpleAssessment({
+        schema,
+        interviewId: id,
+        candidateName: interview.candidateName,
+        roleAppliedFor: interview.roleAppliedFor,
+        transcript,
+      });
+      filledForm = synthesizeFilledForm(interview, simpleAssessment);
+    } else {
+      filledForm = await mapTranscriptToProbeForm({
+        schema,
+        interviewId: id,
+        candidateName: interview.candidateName,
+        roleAppliedFor: interview.roleAppliedFor,
+        candidateTotalYears: interview.candidateTotalYears,
+        candidateRelevantYears: interview.candidateRelevantYears,
+        transcript,
+        questionPlan: interview.questionPlan!,
+      });
+    }
 
     // Phase M (2026-05-31) — always stamp completion + filledForm + transcript.
     // The xlsx buffer is only built when there's a recruiterEmail to send it to;
     // there's no disk fallback anymore. Manual /interviews/new flow (no email)
     // produces only the summary on the result page.
+    // Round-4 (2026-06-01) — keep status="completing" visible for at least
+    // 6s so the dashboard's "preparing probe form" overlay doesn't flash
+    // past on a fast (esp. TEST_MODE) pipeline. finalize is fire-and-forget,
+    // so this delay blocks nothing user-facing.
+    const MIN_COMPLETING_VISIBLE_MS = 6000;
+    const completingElapsed = Date.now() - finalizingStartedAtMs;
+    if (completingElapsed < MIN_COMPLETING_VISIBLE_MS) {
+      await new Promise((r) => setTimeout(r, MIN_COMPLETING_VISIBLE_MS - completingElapsed));
+    }
     store.update(id, {
       status: "completed",
+      completedAt: new Date().toISOString(),
       filledForm,
       transcript,
     });
@@ -262,17 +299,24 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
       ? createHash("sha256").update(vttRaw).digest("hex")
       : createHash("sha256").update(JSON.stringify(vttSegments)).digest("hex");
 
-    const { generateProbeForm } = await import("@/lib/probeFormGenerator");
-    const { buffer, filename } = await generateProbeForm(
-      freshForMail,
-      transcript,
-      filledForm,
-      {
-        transcriptSha256,
-        testMode: !!fixtureMeta,
-        fixtureId: fixtureMeta ? `${fixtureMeta.role}/${fixtureMeta.outcome}` : undefined,
-      }
-    );
+    let buffer: Buffer;
+    let filename: string;
+    if (schema.useSimpleProbeForm && simpleAssessment) {
+      const { generateSimpleProbeForm } = await import("@/lib/probeFormGenerator");
+      ({ buffer, filename } = await generateSimpleProbeForm(freshForMail, simpleAssessment));
+    } else {
+      const { generateProbeForm } = await import("@/lib/probeFormGenerator");
+      ({ buffer, filename } = await generateProbeForm(
+        freshForMail,
+        transcript,
+        filledForm,
+        {
+          transcriptSha256,
+          testMode: !!fixtureMeta,
+          fixtureId: fixtureMeta ? `${fixtureMeta.role}/${fixtureMeta.outcome}` : undefined,
+        }
+      ));
+    }
     log.info(
       { interviewId: id, byteSize: buffer.byteLength, filename },
       "probe-form: generated in-memory"

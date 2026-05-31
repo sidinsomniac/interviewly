@@ -1,4 +1,5 @@
 import { getAppClient } from "@/lib/graph/client";
+import { config } from "@/lib/config";
 import { log } from "@/lib/logger";
 import type { TranscriptSegment } from "@/types/index";
 
@@ -30,6 +31,26 @@ export async function resolveOrganizerGuid(email: string): Promise<string> {
   _guidCache.set(key, guid);
   log.info({ email, guid }, "resolveOrganizerGuid: resolved");
   return guid;
+}
+
+/**
+ * Phase P (2026-06-01) — cached singleton for the bot's AAD GUID.
+ *
+ * `config.ms.botUserEmail` is env-static so the resolved GUID never
+ * changes per process. The underlying `_guidCache` in
+ * `resolveOrganizerGuid` already caches by email, but this thin
+ * wrapper:
+ *   - removes the `config.ms.botUserEmail` ceremony from every call
+ *     site (autoConductor.buildContext, /auto-conduct/start's
+ *     wait-for-candidate loop)
+ *   - documents the intent ("get the bot's GUID") at the type level
+ *
+ * On first call → one Graph /users/{email} request. Subsequent calls
+ * hit the cache. Throws only if the FIRST call throws — once cached
+ * we never retry (a future env-var swap requires process restart).
+ */
+export async function getBotUserGuid(): Promise<string> {
+  return resolveOrganizerGuid(config.ms.botUserEmail);
 }
 
 export async function listTranscripts(

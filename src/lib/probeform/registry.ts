@@ -14,6 +14,7 @@ import { javaBackendSchema } from "./roles/java-backend";
 import { pythonBackendSchema } from "./roles/python-backend";
 import { nodeBackendSchema } from "./roles/node-backend";
 import { frontendGenericSchema } from "./roles/frontend-generic";
+import { customerServiceSchema } from "./roles/customer-service";
 
 export const ROLE_REGISTRY: Record<string, RoleSchema> = {
   [reactSchema.roleId]:           reactSchema,
@@ -21,6 +22,7 @@ export const ROLE_REGISTRY: Record<string, RoleSchema> = {
   [pythonBackendSchema.roleId]:   pythonBackendSchema,
   [nodeBackendSchema.roleId]:     nodeBackendSchema,
   [frontendGenericSchema.roleId]: frontendGenericSchema,
+  [customerServiceSchema.roleId]: customerServiceSchema,
 };
 
 export function getRoleSchema(roleId: string): RoleSchema | undefined {

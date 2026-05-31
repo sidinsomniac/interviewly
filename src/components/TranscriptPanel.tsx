@@ -74,9 +74,13 @@ export function TranscriptPanel({ interview: initial }: { interview: InterviewMe
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-2 pr-1">
+      {/* D (2026-06-01): min-h-0 lets this flex child shrink below content
+          size so overflow-y-auto actually scrolls; max-h bounds the box
+          regardless of the bento flex chain above. */}
+      <div ref={scrollRef} className="flex-1 min-h-0 max-h-[280px] overflow-y-auto space-y-2 pr-2">
         {visible.length === 0 && (
           <div className="text-center text-xs text-gray-400 py-12 px-4">
+            <img src="/images/medha_logo_color.png" alt="" className="h-8 mx-auto opacity-40 mb-2" />
             <p>Waiting for candidate audio…</p>
             <p className="mt-2">
               The bot sidecar streams live STT chunks here.
@@ -85,18 +89,38 @@ export function TranscriptPanel({ interview: initial }: { interview: InterviewMe
           </div>
         )}
         {visible.map((c, i) => (
-          <div
-            key={`${c.timestamp}-${i}`}
-            className="rounded-lg bg-white border border-gray-200 p-3"
-          >
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-xs font-semibold text-gray-700">{c.speaker}</span>
-              <span className="text-xs text-gray-400">{relTime(c.timestamp)}</span>
-            </div>
-            <p className="text-sm text-gray-800 leading-relaxed">{c.text}</p>
-          </div>
+          <TranscriptRow key={`${c.timestamp}-${i}`} chunk={c} />
         ))}
       </div>
+    </div>
+  );
+}
+
+// A (2026-06-01) — hydration fix. relTime() depends on Date.now(), so the
+// server (T0) and client (T0+~1s) rendered different "Nm ago" strings →
+// SSR mismatch. This row component renders "" until mount, then the hook
+// populates the value client-side (suppressHydrationWarning on the span
+// guards the one-frame "" → value swap). Re-ticks every 30s.
+function useClientRelTime(timestamp: string): string {
+  const [val, setVal] = useState<string>("");
+  useEffect(() => {
+    const tick = () => setVal(relTime(timestamp));
+    tick();
+    const t = setInterval(tick, 30_000);
+    return () => clearInterval(t);
+  }, [timestamp]);
+  return val;
+}
+
+function TranscriptRow({ chunk }: { chunk: LiveTranscriptChunk }) {
+  const rel = useClientRelTime(chunk.timestamp);
+  return (
+    <div className="rounded-lg bg-white border border-gray-200 p-3">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-xs font-semibold text-gray-700">{chunk.speaker}</span>
+        <span className="text-xs text-gray-400" suppressHydrationWarning>{rel}</span>
+      </div>
+      <p className="text-sm text-gray-800 leading-relaxed">{chunk.text}</p>
     </div>
   );
 }

@@ -46,7 +46,7 @@ export async function generateQuestionPlan(input: {
     .map((c) => `- ${c.name}: rows ${c.rows.map((r) => r.rowIndex).join(", ")}`)
     .join("\n");
 
-  const systemPrompt = `You are a senior technical interviewer at Publicis Sapient designing a structured interview for the ${roleAppliedFor} role.
+  let systemPrompt = `You are a senior technical interviewer at Publicis Sapient designing a structured interview for the ${roleAppliedFor} role.
 
 Your job is to generate a complete question plan for the ${schema.displayName} probe form. The plan has one or more questions per competency row of the probe form. For each question:
 
@@ -102,6 +102,32 @@ Output ONLY a single JSON object — no prose, no markdown fences — with this 
 ${QUESTION_PLAN_SHAPE}
 
 The "roleId" field at the top level MUST be exactly the string "${schema.roleId}". Every "rowIndex" MUST match one of the rowIndex values from the rows list above. Every "rubricType" MUST be the literal string "architecture" or "development".`;
+
+  // Phase-P2 (2026-06-01) — when a role declares a targetQuestionCount, it
+  // OVERRIDES the flexible 45-min budget above with an exact count. Appended
+  // after the budget guidance so the LLM treats it as the final word.
+  const target = schema.targetQuestionCount ?? null;
+  if (target !== null) {
+    systemPrompt += `\n\nHARD CONSTRAINT: Generate EXACTLY ${target} questions. Not more, not less. Each question should be broad enough to cover multiple rubric rows. Skip narrow probes — pick the ${target} most representative interview questions for this role. This OVERRIDES any budget-based count guidance above.`;
+  }
+  // Phase-P3 (2026-06-01) — booth round-1 post-mortem: CS questions came out
+  // too long/complex. Hard-mandate one-sentence, kindergarten-vocabulary
+  // questions anchored to concrete resume nouns.
+  if (schema.roleId === "customer-service") {
+    systemPrompt += `\n\nROLE-SPECIFIC TONE — booth demo, NOT a real interview:
+- Questions MUST be ONE SHORT SENTENCE each. No multi-part questions. No "and also tell me about...".
+- 6th-grade English. Avoid words like "describe", "elaborate", "walk me through".
+- Use kindergarten openers: "What", "Why", "How", "Tell me".
+- Anchor EVERY question to a concrete noun from the candidate's resume (employer name, hobby, language, award). If the resume mentions Treebo, ask about Treebo. If it mentions Duolingo, ask about Duolingo.
+- NO behavioral STAR-format questions. NO hypothetical scenarios. NO "describe a time when...".
+- Examples of the right shape (each under 12 words):
+   "What is your name and where are you from?"
+   "What did you do at Treebo Hotels?"
+   "What hobby do you enjoy on weekends?"
+   "Why do you like customer service work?"
+   "What languages do you speak at work?"
+- NEVER coding exercises. NEVER scenario role-play.`;
+  }
 
   const humanPrompt = `Job description (may be empty):
 ${jdText ?? "(no JD provided — use generic competency definitions)"}

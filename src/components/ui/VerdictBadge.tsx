@@ -15,6 +15,7 @@ type Verdict =
   | "completed"
   | "failed"
   | "ended"
+  | "completing"
   | "scheduled"
   | "in_progress"
   | "draft";
@@ -29,6 +30,7 @@ const STYLES: Record<
   completed:   { bg: "bg-teams-success/10", text: "text-teams-success", ring: "ring-teams-success/30", label: "Completed" },
   failed:      { bg: "bg-teams-error/10",   text: "text-teams-error",   ring: "ring-teams-error/30",   label: "Failed" },
   ended:       { bg: "bg-teams-warning/10", text: "text-teams-warning", ring: "ring-teams-warning/30", label: "Ended" },
+  completing:  { bg: "bg-teams-primary/10", text: "text-teams-primary", ring: "ring-teams-primary/30", label: "Finalizing" },
   scheduled:   { bg: "bg-teams-primary/10", text: "text-teams-primary", ring: "ring-teams-primary/30", label: "Scheduled" },
   in_progress: { bg: "bg-teams-primary/10", text: "text-teams-primary", ring: "ring-teams-primary/30", label: "In progress" },
   draft:       { bg: "bg-black/5",          text: "text-[color:var(--medha-text-secondary)]", ring: "ring-black/10", label: "Draft" },

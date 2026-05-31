@@ -77,6 +77,12 @@ export async function postQuestionByIndex(
         i === arrayIndex ? { ...q, postedAt } : q
       ),
     },
+    // Phase-P2 (2026-06-01) — stamp the branching-cooldown anchor. Guarded:
+    // Mode A manual interviews have no autoConduct (and never branch anyway),
+    // so we only set it when the conductor state exists.
+    ...(interview.autoConduct
+      ? { autoConduct: { ...interview.autoConduct, currentQuestionPostedAt: postedAt } }
+      : {}),
   });
 
   // Phase I — Mode B: also speak the question through the bot. Fire-and-forget

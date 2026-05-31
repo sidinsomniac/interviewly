@@ -43,6 +43,23 @@ export function QuestionList({
       : null
   );
 
+  // Round-4 (2026-06-01) — re-sync acStatus from the parent's fresh
+  // `interview.autoConduct` whenever it changes. LiveDashboard now polls
+  // every 2s and feeds the live record down; without this, a SCHEDULER-
+  // triggered Mode B start never reflected here because acStatus was seeded
+  // at mount and the 5s poll below is gated on acStatus.active (false at
+  // mount → never started). Now the parent flip wakes everything up.
+  useEffect(() => {
+    const ac = interview.autoConduct;
+    if (!ac) return;
+    setAcStatus({
+      active: ac.active,
+      currentQuestionIndex: ac.currentQuestionIndex,
+      nextQuestionDeadline: ac.nextQuestionDeadline,
+      remainingMs: Math.max(0, Date.parse(ac.nextQuestionDeadline) - Date.now()),
+    });
+  }, [interview.autoConduct]);
+
   // Visual countdown — recomputes from nextQuestionDeadline every 1s
   // without touching the network. Cheaper than the 5s status poll.
   const [tick, setTick] = useState(0);
@@ -231,22 +248,27 @@ export function QuestionList({
           still renders for both modes; per-question post buttons stay too
           as a debug fallback. Mode B's voice behavior lands in Phase H. */}
       {mode === "auto" && !acActive && (
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 flex items-center gap-3">
+        <div className="rounded-xl border border-teams-primary/20 bg-teams-primary/5 p-4 flex items-center gap-3">
           <div className="text-2xl">🤖</div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-indigo-900">Auto mode — Medha will run this interview</p>
-            <p className="text-xs text-indigo-800 mt-0.5">
-              Welcome + questions are spoken automatically once the candidate joins. (Phase H pending.)
+            <p className="text-sm font-semibold text-teams-primary">Auto mode — Medha is conducting this interview live.</p>
+            <p className="text-xs text-[color:var(--medha-text-secondary)] mt-0.5">
+              Welcome and follow-ups happen automatically.
             </p>
           </div>
-          <button
-            onClick={startAutoConduct}
-            disabled={autoPending !== null || acActive}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {autoPending === "start" ? <Spinner size="sm" /> : null}
-            Start Mode B (debug)
-          </button>
+          {/* F (2026-06-01): debug control — hidden in production builds.
+              The whole card disappears once Mode B is active (!acActive guard
+              above), so the button is implicitly gone while running too. */}
+          {process.env.NODE_ENV !== "production" && (
+            <button
+              onClick={startAutoConduct}
+              disabled={autoPending !== null || acActive}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-teams-primary/30 bg-white px-3 py-1.5 text-xs font-medium text-teams-primary hover:bg-teams-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {autoPending === "start" ? <Spinner size="sm" /> : null}
+              Force-start Mode B (debug)
+            </button>
+          )}
         </div>
       )}
 

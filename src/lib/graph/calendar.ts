@@ -73,11 +73,20 @@ export async function createTeamsMeeting(params: {
         },
         recordAutomatically: true,
       });
-    log.info({ onlineMeetingId }, "Meeting properties PATCH applied");
+    log.info({ onlineMeetingId, lobbyScope: "everyone" }, "Meeting properties PATCH succeeded");
   } catch (err) {
+    // Round-4 (2026-06-01) — surface statusCode/code so Sid can tell a real
+    // PATCH failure (guests stuck in lobby) from a tenant-policy override
+    // (PATCH succeeds but AutoAdmittedUsers policy still gates). See
+    // docs/03-MICROSOFT-INTEGRATION.md §12.
     log.warn(
-      { onlineMeetingId, err: err instanceof Error ? err.message : String(err) },
-      "Meeting properties PATCH failed (non-fatal)"
+      {
+        onlineMeetingId,
+        errMessage: err instanceof Error ? err.message : String(err),
+        errCode: (err as { code?: string })?.code,
+        errStatusCode: (err as { statusCode?: number })?.statusCode,
+      },
+      "Meeting properties PATCH FAILED — guests will be stuck in lobby"
     );
   }
 

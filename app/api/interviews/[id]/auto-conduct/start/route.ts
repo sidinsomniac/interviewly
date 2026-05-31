@@ -265,6 +265,69 @@ export async function POST(
     // at the 5s mark. Widen further if `bot/speak: no active call` warnings reappear.
     await new Promise((r) => setTimeout(r, 8000));
 
+    // Phase P (2026-06-01) — wait up to 90s total for a non-bot non-
+    // organizer non-recruiter member to appear in the chat thread.
+    // Teams auto-adds joining attendees to the chat thread as members,
+    // which gives us a cheap polling signal without needing the Calls
+    // API. Fallback fires the intro anyway at 90s so the demo never
+    // deadlocks. The Phase N pre-consent watchdog is the second-line
+    // defense for the no-show case (will endInterview at ~180s).
+    if (interview.chatId) {
+      let botGuidLower: string | undefined;
+      try {
+        const { getBotUserGuid } = await import("@/lib/graph/transcript");
+        botGuidLower = (await getBotUserGuid()).toLowerCase();
+      } catch (err) {
+        log.warn(
+          { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+          "auto-conduct/start: getBotUserGuid failed (proceeding without bot filter)"
+        );
+      }
+      const orgGuidLower = interview.organizerGuid?.toLowerCase();
+      const recruiterEmailLower = interview.recruiterEmail?.toLowerCase();
+      const waitStartedAt = Date.now();
+      const waitDeadline = waitStartedAt + 90_000;
+      let detectedCandidate = false;
+      try {
+        const { fetchChatMembers } = await import("@/lib/graph/chat");
+        while (Date.now() < waitDeadline) {
+          const members = await fetchChatMembers(interview.chatId).catch(() => []);
+          const candidate = members.find((m) => {
+            const uidLower = m.userId?.toLowerCase();
+            const emailLower = m.email?.toLowerCase();
+            if (uidLower && botGuidLower && uidLower === botGuidLower) return false;
+            if (uidLower && orgGuidLower && uidLower === orgGuidLower) return false;
+            if (emailLower && recruiterEmailLower && emailLower === recruiterEmailLower) return false;
+            return true; // someone who isn't the bot, organizer, or recruiter
+          });
+          if (candidate) {
+            detectedCandidate = true;
+            log.info(
+              {
+                interviewId: id,
+                candidateDisplayName: candidate.displayName,
+                waitMs: Date.now() - waitStartedAt,
+              },
+              "auto-conduct/start: candidate detected — proceeding with intro"
+            );
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 5_000));
+        }
+      } catch (err) {
+        log.warn(
+          { interviewId: id, err: err instanceof Error ? err.message : String(err) },
+          "auto-conduct/start: wait-for-candidate poll threw (proceeding anyway)"
+        );
+      }
+      if (!detectedCandidate) {
+        log.warn(
+          { interviewId: id, waitMs: Date.now() - waitStartedAt },
+          "auto-conduct/start: 90s wait elapsed — candidate not detected, firing intro anyway"
+        );
+      }
+    }
+
     // 1) Speak the intro through the bot. Longer timeout than join (TTS
     // synthesis + 20 ms PCM chunk pacing eats a few seconds).
     const speakController = new AbortController();

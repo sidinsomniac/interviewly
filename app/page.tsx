@@ -10,6 +10,8 @@ export default function Home() {
       <BentoGrid className="mb-6">
         <BentoCard span="col-span-12" hero>
           <div className="text-center py-8 px-4">
+            {/* Round-4 (2026-06-01) — Medha logo above the hero title. */}
+            <img src="/images/medha_logo_color.png" alt="Medha" className="h-14 mx-auto mb-4" />
             <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-teams-primary/10 px-3 py-1 text-sm font-medium text-teams-primary ring-1 ring-teams-primary/20">
               <SparkleIcon className="h-4 w-4" />
               AI-powered interviewing
