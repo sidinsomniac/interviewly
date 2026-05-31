@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   // source changes. Each persist tick → recompile → fresh worker process
   // → re-import store.ts → restoreSchedules() spam. Excluding data/
   // (and explicitly node_modules/ as belt-and-braces) breaks the loop.
+  // Phase L (2026-05-31) additionally moved runtime writes to ~/.medha
+  // entirely, but the ignore stays as belt-and-braces — data/templates/
+  // and data/fixtures/ still live in the repo (read-only assets).
   webpack: (config) => {
     config.watchOptions = {
       ...config.watchOptions,

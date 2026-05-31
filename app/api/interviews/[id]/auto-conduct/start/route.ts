@@ -42,6 +42,28 @@ export async function POST(
   if (!interview) {
     return NextResponse.json({ ok: false, error: "Interview not found" }, { status: 404 });
   }
+  // Phase L post-mortem (2026-05-31) — idempotency guard against the
+  // duplicate-bot scenario: stalled UI → double-click Start → N bot/join's,
+  // N welcome speeches, N consent posts firing in parallel. Server-side
+  // 409 catches the race; client-side disable in QuestionList.tsx catches
+  // the click itself. Both ship together.
+  if (interview.autoConduct?.active === true) {
+    log.info(
+      {
+        interviewId: id,
+        currentQuestionIndex: interview.autoConduct.currentQuestionIndex,
+      },
+      "auto-conduct/start: idempotency guard — already active, returning 409"
+    );
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "auto-conduct already active for this interview",
+        autoConduct: interview.autoConduct,
+      },
+      { status: 409 }
+    );
+  }
   // Phase G: log conductMode but don't branch — Phase H wires Mode B's voice
   // path. Both modes share the transcript-keyword loop today.
   log.info({ interviewId: id, conductMode: interview.conductMode }, "auto-conduct/start: mode");

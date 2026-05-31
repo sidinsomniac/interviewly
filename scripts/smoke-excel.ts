@@ -63,9 +63,10 @@ async function main() {
   });
 
   const buffer = await toBuffer(wb);
-  const outputDir = path.resolve(process.cwd(), "data/output");
-  fs.mkdirSync(outputDir, { recursive: true });
-  const outPath = path.join(outputDir, "smoke-test.xlsx");
+  // Phase L: writes go to ~/.medha/output by default (override via MEDHA_DATA_DIR).
+  // paths.ts mkdirSync's the dir at import time — no explicit mkdir needed.
+  const { MEDHA_OUTPUT_DIR } = await import("@/lib/paths");
+  const outPath = path.join(MEDHA_OUTPUT_DIR, "smoke-test.xlsx");
   fs.writeFileSync(outPath, buffer);
 
   console.log(`\n✅ Wrote ${outPath}`);

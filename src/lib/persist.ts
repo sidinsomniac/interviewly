@@ -1,13 +1,18 @@
 import fs from "fs";
 import path from "path";
+import { MEDHA_OUTPUT_DIR } from "@/lib/paths";
 import type { InterviewMetadata } from "@/types/index";
 
 /**
  * Persist path — exported so the GET-/-interview route can read it
  * directly for its disk-fresh band-aid (Phase J fix). Single source of
  * truth for the on-disk JSON location.
+ *
+ * Phase L (2026-05-31) — now rooted in MEDHA_OUTPUT_DIR (defaults to
+ * %USERPROFILE%/.medha/output), OUTSIDE the project root so the Next
+ * dev file watcher cannot see writes here under any circumstance.
  */
-export const PERSIST_PATH = path.resolve(process.cwd(), "data/output/interviews.json");
+export const PERSIST_PATH = path.join(MEDHA_OUTPUT_DIR, "interviews.json");
 
 /**
  * Race-safe persist write.

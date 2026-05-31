@@ -69,9 +69,18 @@ export interface InterviewMetadata {
   // /interviews/new form. interviewerEmail is carried for downstream
   // notification flows; welcomePostedAt enables the post-welcome button's
   // idempotency check.
-  source: "n8n" | "manual";
+  source: "n8n" | "manual" | "screening";
   interviewerEmail?: string;
   welcomePostedAt?: string;
+
+  /**
+   * Phase K: recruiter who owns the interview workflow. Distinct from
+   * `interviewerEmail` (the panel-member doing the actual conversation).
+   * Set by the screening flow (`/recruiter/screen`). Used as the To: for
+   * the scheduled-interview confirmation email and the probe-form-ready
+   * notification email.
+   */
+  recruiterEmail?: string;
 
   /**
    * Phase G: interview-style selector picked at scheduling.
@@ -390,9 +399,13 @@ export const PlannedQuestionSchema = z.object({
   isHandsOnExercise: z.boolean().optional(),
   // Accept "" as an explicit sentinel for "no exercise". DeepSeek (and
   // some Gemini outputs) emit the field on every question with "" when
-  // isHandsOnExercise is false, instead of omitting the key. Treat that
-  // as equivalent to omission rather than failing the whole plan.
-  exerciseUrl: z.union([z.string().url(), z.literal("")]).optional(),
+  // isHandsOnExercise is false, instead of omitting the key. The
+  // .transform() normalizes "" → undefined so downstream consumers
+  // only ever see a real URL or undefined.
+  exerciseUrl: z
+    .union([z.string().url(), z.literal("")])
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
   // Phase J — ISO timestamp the question was posted to chat. Stamped
   // by postQuestionByIndex when the question fires; absent on freshly-
   // generated plans before first post.
@@ -414,6 +427,34 @@ export const QuestionPlanSchema = z.object({
   // logging a too-large value beats rejecting the whole plan.
   totalBudgetSec: z.number().int().positive().optional(),
 });
+
+// ============================================================
+// Phase J — resume screening (extract + score) schemas.
+//
+// Profile is the LLM extraction output from a candidate's resume;
+// Score is the role-rubric scoring output (verdict + reasoning).
+// Both schemas validate LLM responses in /api/screen.
+// ============================================================
+export const CandidateProfileSchema = z.object({
+  candidateName: z.string(),
+  candidateEmail: z.string(),               // "" if not extractable
+  candidateTotalYears: z.number().min(0).max(60),
+  candidateRelevantYears: z.number().min(0).max(60),
+  roleAppliedFor: z.string(),               // human-readable
+  keySkills: z.array(z.string()).max(20),
+  notableProjects: z.array(z.string()).max(10),
+});
+export type CandidateProfile = z.infer<typeof CandidateProfileSchema>;
+
+export const ScreeningScoreSchema = z.object({
+  verdict: z.enum(["selected", "rejected", "borderline"]),
+  confidence: z.number().min(0).max(1),
+  strengths: z.array(z.string()).min(1).max(6),
+  gaps: z.array(z.string()).min(1).max(6),
+  summary: z.string().min(20),
+  recommendedDifficultyBias: z.enum(["easy", "medium", "hard"]),
+});
+export type ScreeningScore = z.infer<typeof ScreeningScoreSchema>;
 
 // Exact proficiency strings — trailing spaces and typo preserved verbatim.
 // DO NOT retype these — copy from this file wherever they are needed.

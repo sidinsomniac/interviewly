@@ -35,7 +35,10 @@ next-env.d.ts
 
 # Bot state
 .bot-refresh-token
-data/output/
+# Phase L (2026-05-31): data/output/ no longer used at runtime — moved to
+# ~/.medha/output/. The directory and its old contents won't be created
+# anymore. data/tokens/ is left in place (MSAL auth token cache may still
+# write there; out of scope for this refactor).
 data/tokens/
 
 # Editor

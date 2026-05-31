@@ -280,6 +280,61 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
     });
 
     log.info({ interviewId: id, filePath }, "Probe form generated successfully");
+
+    // Phase K — fire-and-forget probe-form-ready email to the recruiter.
+    // Skips silently if recruiterEmail is undefined (legacy interviews,
+    // n8n flow). Attaches the .xlsx when under Graph's 4 MB sendMail
+    // limit; otherwise sends the link-only variant.
+    const freshForMail = store.get(id);
+    if (freshForMail?.recruiterEmail && freshForMail.recruiterEmail.includes("@")) {
+      const base = config.app.baseUrl.replace(/\/$/, "");
+      const resultUrl = `${base}/interviews/${id}/result`;
+      const FOUR_MB = 4 * 1024 * 1024;
+      let attached = false;
+      let attachments: { filename: string; contentBase64: string; contentType: string }[] | undefined;
+      try {
+        if (buffer.byteLength <= FOUR_MB) {
+          attachments = [{
+            filename: `${freshForMail.candidateName.replace(/[^\w\-]+/g, "_") || id}-probe-form.xlsx`,
+            contentBase64: Buffer.isBuffer(buffer)
+              ? buffer.toString("base64")
+              : Buffer.from(buffer).toString("base64"),
+            contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }];
+          attached = true;
+        } else {
+          log.warn(
+            { interviewId: id, sizeBytes: buffer.byteLength },
+            "probe-form-ready email: .xlsx exceeds 4 MB Graph sendMail cap — sending link-only variant"
+          );
+        }
+      } catch (attErr) {
+        log.warn(
+          { interviewId: id, err: attErr instanceof Error ? attErr.message : String(attErr) },
+          "probe-form-ready email: attachment build failed — sending link-only variant"
+        );
+      }
+
+      const { probeFormReadyEmail } = await import("@/lib/mail/templates");
+      const { sendMail } = await import("@/lib/graph/mail");
+      const tpl = probeFormReadyEmail({
+        candidateName: freshForMail.candidateName,
+        roleAppliedFor: freshForMail.roleAppliedFor,
+        resultUrl,
+        attached,
+      });
+      void sendMail({
+        to: freshForMail.recruiterEmail,
+        subject: tpl.subject,
+        html: tpl.html,
+        attachments,
+      });
+    } else {
+      log.info(
+        { interviewId: id, hasRecruiterEmail: !!freshForMail?.recruiterEmail },
+        "probe-form-ready email: skipped (no recruiterEmail on interview)"
+      );
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log.error({ interviewId: id, err: errorMessage }, "Finalize failed");

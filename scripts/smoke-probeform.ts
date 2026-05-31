@@ -94,9 +94,9 @@ async function main(): Promise<number> {
   });
 
   const buffer = await toBuffer(wb);
-  const outputDir = path.resolve(process.cwd(), "data/output");
-  fs.mkdirSync(outputDir, { recursive: true });
-  const outPath = path.join(outputDir, `smoke-probeform-${schema.roleId}.xlsx`);
+  // Phase L: writes go to ~/.medha/output by default (override via MEDHA_DATA_DIR).
+  const { MEDHA_OUTPUT_DIR } = await import("@/lib/paths");
+  const outPath = path.join(MEDHA_OUTPUT_DIR, `smoke-probeform-${schema.roleId}.xlsx`);
   fs.writeFileSync(outPath, buffer);
 
   console.log(`\n✅ Wrote ${outPath}`);

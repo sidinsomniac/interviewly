@@ -148,6 +148,15 @@ export function QuestionList({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
+      // Phase L post-mortem (2026-05-31) — server idempotency guard fired:
+      // auto-conduct is already active (probably from a previous click or
+      // another tab). Don't treat as an error; pull fresh state so the
+      // dashboard shows what's actually running.
+      if (res.status === 409) {
+        toast.warning("Auto-conduct already running — refresh page to see status");
+        try { await onUpdate(); } catch { /* non-fatal — recruiter can reload manually */ }
+        return;
+      }
       const data = await res.json();
       if (!data.ok) throw new Error(data.error ?? "Failed");
       const ac = data.autoConduct;
