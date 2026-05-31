@@ -62,7 +62,15 @@ export interface InterviewMetadata {
 
   transcript?: TranscriptSegment[];
   filledForm?: FilledProbeForm;
-  probeFormFilePath?: string;
+
+  /**
+   * Phase M (2026-05-31): ISO timestamp set when the probe-form email
+   * was successfully accepted by Graph sendMail (2xx). Absent → not
+   * sent (either no recruiterEmail on the interview, or sendMail
+   * returned false). Replaces the prior `probeFormFilePath` field —
+   * the .xlsx is no longer persisted to disk.
+   */
+  probeFormSentAt?: string;
 
   // Sub-Phase E: origin tracking for the n8n handoff. "n8n" interviews
   // come in through /api/schedule-interview; "manual" through the
@@ -119,6 +127,21 @@ export interface InterviewMetadata {
     // records load without migration.
     awaitingConsent?: boolean;
     consentReceivedAt?: string;
+    /**
+     * Phase N (2026-05-31) — most recent ISO timestamp when a NON-BOT
+     * sender produced activity in the meeting: chat message, live-
+     * transcript final chunk, or initial conductor start. Drives the
+     * auto-leave watchdog: if stale beyond MEDHA_HUMAN_IDLE_TIMEOUT_MS
+     * (post-consent) or MEDHA_PRE_CONSENT_IDLE_TIMEOUT_MS (pre-consent),
+     * the autoConductor calls endInterview() and the bot leaves the
+     * meeting via finalize()'s existing /api/bot/leave call. Initialized
+     * to startedAt on /auto-conduct/start so a slow-joining candidate
+     * isn't kicked immediately. Also gates voice-consent acceptance in
+     * live-transcript: a /\bi\s+agree\b/i match is REJECTED if no human
+     * activity has been recorded in the last 5 minutes, which protects
+     * against bot utterances leaking through the speaker filter.
+     */
+    lastHumanActivityAt?: string;
   };
 
   // Scope Y: live transcript + DeepSeek-driven branching.
@@ -399,13 +422,17 @@ export const PlannedQuestionSchema = z.object({
   isHandsOnExercise: z.boolean().optional(),
   // Accept "" as an explicit sentinel for "no exercise". DeepSeek (and
   // some Gemini outputs) emit the field on every question with "" when
-  // isHandsOnExercise is false, instead of omitting the key. The
-  // .transform() normalizes "" → undefined so downstream consumers
-  // only ever see a real URL or undefined.
+  // isHandsOnExercise is false, instead of omitting the key. As of
+  // 2026-05-31 (post DeepSeek server upgrade) the same provider also
+  // emits explicit `null` for the no-exercise case — observed crashing
+  // /api/screen/approve with a Zod 500 before any meeting was scheduled.
+  // The .null() arm + `v === null` transform normalize both "" and null
+  // to undefined so downstream consumers only ever see a real URL or
+  // undefined.
   exerciseUrl: z
-    .union([z.string().url(), z.literal("")])
+    .union([z.string().url(), z.literal(""), z.null()])
     .optional()
-    .transform((v) => (v === "" ? undefined : v)),
+    .transform((v) => (v === "" || v === null ? undefined : v)),
   // Phase J — ISO timestamp the question was posted to chat. Stamped
   // by postQuestionByIndex when the question fires; absent on freshly-
   // generated plans before first post.

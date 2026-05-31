@@ -30,6 +30,21 @@ if (process.env.NODE_ENV !== "production") {
   globalForScheduler.__medhaInterviewScheduler = timers;
 }
 
+// Phase N (2026-05-31) — cache the main-server check once at boot.
+// Compile-worker processes spawned by Next 16's webpack/turbopack lack
+// `start-server.js` in argv[1] — they have something like
+// `.../next/dist/compiled/.../...` instead — so this heuristic cleanly
+// separates main from worker. Cheap O(1) string suffix check; no IPC, no
+// env-var coordination required. Used to gate restoreSchedules() so
+// worker processes don't re-arm every persisted interview's timer (which,
+// when scheduledFor is past, stampedes /auto-conduct/start with ~30
+// duplicate POSTs per cold start). If Next renames the entry file in a
+// future minor, the diagnostic log below will show `isMainServer:false`
+// for every PID — that's the signal to revisit this heuristic.
+const IS_MAIN_SERVER =
+  typeof process.argv[1] === "string" &&
+  process.argv[1].endsWith("start-server.js");
+
 /**
  * Arm a one-shot timer that fires /auto-conduct/start at the given ISO time.
  * Idempotent — replaces any existing timer for this interviewId.
@@ -115,14 +130,27 @@ let _restored = false;
 export function restoreSchedules(): void {
   if (_restored) return;
   _restored = true;
-  for (const iv of store.list()) {
-    if (
-      iv.conductMode === "auto" &&
-      iv.status === "scheduled" &&
-      iv.scheduledFor
-    ) {
-      scheduleAutoStart(iv.id, iv.scheduledFor);
+
+  // Phase N (2026-05-31) — only the main server arms timers. Compile
+  // workers IMPORT this module too (via store.ts's lazy import), but
+  // they exit after serving their compile request — re-arming setTimeout
+  // there is wasted work and, when scheduledFor is in the past,
+  // stampedes /auto-conduct/start. We still emit the log line in workers
+  // (with count:0, isMainServer:false) so the diagnostic proves the gate
+  // is doing its job.
+  if (IS_MAIN_SERVER) {
+    for (const iv of store.list()) {
+      if (
+        iv.conductMode === "auto" &&
+        iv.status === "scheduled" &&
+        iv.scheduledFor
+      ) {
+        scheduleAutoStart(iv.id, iv.scheduledFor);
+      }
     }
   }
-  log.info({ count: timers.size }, "restoreSchedules: complete");
+  log.info(
+    { count: timers.size, isMainServer: IS_MAIN_SERVER, pid: process.pid },
+    "restoreSchedules: complete"
+  );
 }

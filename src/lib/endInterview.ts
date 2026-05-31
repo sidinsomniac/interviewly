@@ -242,98 +242,74 @@ export async function finalize(id: string, injectedVttSegments?: TranscriptSegme
       questionPlan: interview.questionPlan!,
     });
 
-    const wb = await loadTemplate(schema.excelTemplate);
-    fillProbeForm(wb, schema, filledForm);
+    // Phase M (2026-05-31) — always stamp completion + filledForm + transcript.
+    // The xlsx buffer is only built when there's a recruiterEmail to send it to;
+    // there's no disk fallback anymore. Manual /interviews/new flow (no email)
+    // produces only the summary on the result page.
+    store.update(id, {
+      status: "completed",
+      filledForm,
+      transcript,
+    });
+
+    const freshForMail = store.get(id);
+    if (!freshForMail?.recruiterEmail || !freshForMail.recruiterEmail.includes("@")) {
+      log.info({ interviewId: id }, "probe-form: skipped (no recruiterEmail)");
+      return;
+    }
 
     const transcriptSha256 = vttRaw
       ? createHash("sha256").update(vttRaw).digest("hex")
       : createHash("sha256").update(JSON.stringify(vttSegments)).digest("hex");
 
-    addMetaSheet(wb, {
-      app: "interviewly",
-      version: "0.1.0",
-      modelProvider: config.llm.provider,
-      modelId: config.llm.modelId,
-      generatedAt: new Date().toISOString(),
-      meetingId: fixtureMeta
-        ? `TEST_MODE:${fixtureMeta.role}-${fixtureMeta.outcome}`
-        : (interview.meetingId ?? "unknown"),
-      transcriptSha256,
-      recruiterEmail: config.ms.organizerEmail,
-      botUserEmail: config.ms.botUserEmail,
-      testMode: !!fixtureMeta,
-      fixtureId: fixtureMeta ? `${fixtureMeta.role}/${fixtureMeta.outcome}` : undefined,
-    });
-
-    const buffer = await toBuffer(wb);
-
-    const outputDir = path.resolve(process.cwd(), config.app.outputDir);
-    fs.mkdirSync(outputDir, { recursive: true });
-    const filePath = path.join(outputDir, `${id}.xlsx`);
-    fs.writeFileSync(filePath, buffer);
-
-    store.update(id, {
-      status: "completed",
-      filledForm,
+    const { generateProbeForm } = await import("@/lib/probeFormGenerator");
+    const { buffer, filename } = await generateProbeForm(
+      freshForMail,
       transcript,
-      probeFormFilePath: `${id}.xlsx`,
-    });
-
-    log.info({ interviewId: id, filePath }, "Probe form generated successfully");
-
-    // Phase K — fire-and-forget probe-form-ready email to the recruiter.
-    // Skips silently if recruiterEmail is undefined (legacy interviews,
-    // n8n flow). Attaches the .xlsx when under Graph's 4 MB sendMail
-    // limit; otherwise sends the link-only variant.
-    const freshForMail = store.get(id);
-    if (freshForMail?.recruiterEmail && freshForMail.recruiterEmail.includes("@")) {
-      const base = config.app.baseUrl.replace(/\/$/, "");
-      const resultUrl = `${base}/interviews/${id}/result`;
-      const FOUR_MB = 4 * 1024 * 1024;
-      let attached = false;
-      let attachments: { filename: string; contentBase64: string; contentType: string }[] | undefined;
-      try {
-        if (buffer.byteLength <= FOUR_MB) {
-          attachments = [{
-            filename: `${freshForMail.candidateName.replace(/[^\w\-]+/g, "_") || id}-probe-form.xlsx`,
-            contentBase64: Buffer.isBuffer(buffer)
-              ? buffer.toString("base64")
-              : Buffer.from(buffer).toString("base64"),
-            contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          }];
-          attached = true;
-        } else {
-          log.warn(
-            { interviewId: id, sizeBytes: buffer.byteLength },
-            "probe-form-ready email: .xlsx exceeds 4 MB Graph sendMail cap — sending link-only variant"
-          );
-        }
-      } catch (attErr) {
-        log.warn(
-          { interviewId: id, err: attErr instanceof Error ? attErr.message : String(attErr) },
-          "probe-form-ready email: attachment build failed — sending link-only variant"
-        );
+      filledForm,
+      {
+        transcriptSha256,
+        testMode: !!fixtureMeta,
+        fixtureId: fixtureMeta ? `${fixtureMeta.role}/${fixtureMeta.outcome}` : undefined,
       }
+    );
+    log.info(
+      { interviewId: id, byteSize: buffer.byteLength, filename },
+      "probe-form: generated in-memory"
+    );
 
-      const { probeFormReadyEmail } = await import("@/lib/mail/templates");
-      const { sendMail } = await import("@/lib/graph/mail");
-      const tpl = probeFormReadyEmail({
-        candidateName: freshForMail.candidateName,
-        roleAppliedFor: freshForMail.roleAppliedFor,
-        resultUrl,
-        attached,
-      });
-      void sendMail({
-        to: freshForMail.recruiterEmail,
-        subject: tpl.subject,
-        html: tpl.html,
-        attachments,
-      });
-    } else {
-      log.info(
-        { interviewId: id, hasRecruiterEmail: !!freshForMail?.recruiterEmail },
-        "probe-form-ready email: skipped (no recruiterEmail on interview)"
+    const FOUR_MB = 4 * 1024 * 1024;
+    if (buffer.byteLength > FOUR_MB) {
+      log.warn(
+        { interviewId: id, sizeBytes: buffer.byteLength },
+        "probe-form: exceeds 4 MB Graph sendMail cap — discarding (no link variant in in-memory mode)"
       );
+      return;
+    }
+
+    const { probeFormReadyEmail } = await import("@/lib/mail/templates");
+    const { sendMail } = await import("@/lib/graph/mail");
+    const tpl = probeFormReadyEmail({
+      candidateName: freshForMail.candidateName,
+      roleAppliedFor: freshForMail.roleAppliedFor,
+      resultUrl: `${config.app.baseUrl.replace(/\/$/, "")}/interviews/${id}/result`,
+      attached: true,
+    });
+    const ok = await sendMail({
+      to: freshForMail.recruiterEmail,
+      subject: tpl.subject,
+      html: tpl.html,
+      attachments: [{
+        filename,
+        contentBase64: buffer.toString("base64"),
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }],
+    });
+    if (ok) {
+      store.update(id, { probeFormSentAt: new Date().toISOString() });
+      log.info({ interviewId: id, to: freshForMail.recruiterEmail }, "probe-form email: sent");
+    } else {
+      log.warn({ interviewId: id }, "probe-form email: send failed — buffer discarded, no retry");
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

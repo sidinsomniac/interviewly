@@ -29,25 +29,15 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
   // real meeting). useEffect dep on status ensures the navigation fires
   // exactly once.
   //
-  // Phase J fix — inclusive readiness check. The status field may not
-  // flip from "ended" to "completed" in the on-disk JSON when multi-process
-  // dev workers race on the persist file. probeFormFilePath / filledForm
-  // are equally reliable signals that finalize completed successfully.
+  // Phase M (2026-05-31) — readiness simplified to status-only. The
+  // probe-form file no longer exists, so the older probeFormFilePath /
+  // filledForm fallbacks are gone. finalize() always stamps status:
+  // "completed" before attempting the email send, so this fires reliably.
   useEffect(() => {
-    const ready =
-      interview.status === "completed" ||
-      !!interview.probeFormFilePath ||
-      !!interview.filledForm?.header?.candidateName;
-    if (ready) {
+    if (interview.status === "completed") {
       router.replace(`/interviews/${interview.id}/result`);
     }
-  }, [
-    interview.status,
-    interview.probeFormFilePath,
-    interview.filledForm,
-    interview.id,
-    router,
-  ]);
+  }, [interview.status, interview.id, router]);
 
   return (
     <div className="relative flex flex-col h-screen">

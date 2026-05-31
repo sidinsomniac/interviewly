@@ -49,6 +49,19 @@ const DEFAULTS: Required<AutoConductOpts> = {
   pollIntervalMs: 5_000,
 };
 
+// Phase N (2026-05-31) — auto-leave watchdog thresholds. Pre-consent
+// window is more lenient because a slow-joining candidate may still be
+// reading the consent banner; post-consent is tight because a 60s
+// silence mid-interview means the recruiter/candidate left and the bot
+// is now alone in the meeting eating Speech minutes. Both env-tunable
+// via .env.local — see .env.local.example for documentation.
+const HUMAN_IDLE_POST_CONSENT_MS = Number(
+  process.env.MEDHA_HUMAN_IDLE_TIMEOUT_MS ?? 60_000
+);
+const HUMAN_IDLE_PRE_CONSENT_MS = Number(
+  process.env.MEDHA_PRE_CONSENT_IDLE_TIMEOUT_MS ?? 180_000
+);
+
 const globalForAutoConductor = globalThis as unknown as {
   __medhaAutoConductorTimers?: Map<string, NodeJS.Timeout>;
   __medhaAutoConductorContexts?: Map<string, ConductorContext>;
@@ -326,9 +339,48 @@ async function tick(interviewId: string): Promise<void> {
         awaitingConsent: ac.awaitingConsent ?? false,
         currentQuestionIndex: ac.currentQuestionIndex,
         lastSeenChatMessageId: ac.lastSeenChatMessageId ?? null,
+        lastHumanActivityAt: ac.lastHumanActivityAt ?? null,
       },
       "autoConductor: tick"
     );
+
+    // Phase N (2026-05-31) — auto-leave watchdog. Fires BEFORE the consent
+    // gate so it kicks in for both pre-consent (slow/no-show candidate)
+    // and post-consent (recruiter walked away mid-interview) states.
+    // endInterview() internally calls /api/bot/leave via finalize(), so
+    // the bot exits cleanly. Fire-and-forget so the tick returns; the
+    // next tick will see status:"completed" and stopAutoConduct from
+    // the existing stop-condition block above. Falls back to startedAt
+    // if lastHumanActivityAt isn't set yet (legacy records or first tick
+    // before any update has fired).
+    const idleMs = Date.now() - Date.parse(ac.lastHumanActivityAt ?? ac.startedAt);
+    const idleLimit = ac.awaitingConsent
+      ? HUMAN_IDLE_PRE_CONSENT_MS
+      : HUMAN_IDLE_POST_CONSENT_MS;
+    if (idleMs > idleLimit) {
+      log.warn(
+        {
+          interviewId,
+          idleMs,
+          idleLimit,
+          awaitingConsent: ac.awaitingConsent ?? false,
+        },
+        "autoConductor: no human activity — ending interview"
+      );
+      // Dynamic import to dodge the circular reference (endInterview.ts
+      // → /api/bot/leave fetch is fine, but endInterview imports nothing
+      // from this module today; using dynamic import here keeps the bot
+      // call path lazy and ensures this file stays cheap to import).
+      const { endInterview } = await import("@/lib/endInterview");
+      void endInterview(interviewId).catch((err) =>
+        log.error(
+          { interviewId, err: err instanceof Error ? err.message : String(err) },
+          "autoConductor: watchdog endInterview threw"
+        )
+      );
+      stopAutoConduct(interviewId);
+      return;
+    }
 
     // Phase H — Mode B consent gate. Short-circuits BOTH the timeout path
     // and the keyword path until the candidate types /\bi\s+agree\b/i in
@@ -348,6 +400,10 @@ async function tick(interviewId: string): Promise<void> {
       const messages = await fetchChatMessagesSince(interview.chatId!, sinceIso);
       let lastSeenId = ac.lastSeenChatMessageId;
       let consented = false;
+      // Phase N — track whether any non-bot, non-empty, non-consent-template
+      // text was observed this tick. Bundles into the single store.update
+      // below so we don't fan out per-message writes.
+      let sawHumanText = false;
       for (const msg of messages) {
         lastSeenId = msg.id;
         const fromId = msg.from?.user?.id;
@@ -367,6 +423,9 @@ async function tick(interviewId: string): Promise<void> {
         // stripped text starts with "Hi! I'm Medha" (see MEDHA_CONSENT_CHAT_HTML);
         // no real candidate utterance starts with that phrase. Cheap O(prefix).
         if (text.startsWith("Hi! I'm Medha")) continue;
+        // This message is a substantive non-bot utterance — count it as
+        // human activity even if it doesn't match the consent regex.
+        sawHumanText = true;
         // Word-boundary "I agree" — case-insensitive, tolerant of trailing
         // punctuation ("I agree.") and surrounding text ("yes I agree to
         // proceed"). Excludes "disagree" and "i'm agreeable".
@@ -376,17 +435,28 @@ async function tick(interviewId: string): Promise<void> {
         }
       }
       // Persist lastSeenId (and consent flip if matched) in a single update.
+      // Phase N — also persist lastHumanActivityAt if we saw substantive
+      // non-bot text this tick.
+      const newActivityStamp = sawHumanText
+        ? new Date().toISOString()
+        : ac.lastHumanActivityAt;
       const patch = consented
         ? {
             ...ac,
             lastSeenChatMessageId: lastSeenId,
+            lastHumanActivityAt: newActivityStamp,
             awaitingConsent: false,
             consentReceivedAt: new Date().toISOString(),
           }
-        : { ...ac, lastSeenChatMessageId: lastSeenId };
+        : {
+            ...ac,
+            lastSeenChatMessageId: lastSeenId,
+            lastHumanActivityAt: newActivityStamp,
+          };
       if (
         lastSeenId !== ac.lastSeenChatMessageId ||
-        consented
+        consented ||
+        newActivityStamp !== ac.lastHumanActivityAt
       ) {
         store.update(interviewId, { autoConduct: patch });
       }
@@ -423,6 +493,10 @@ async function tick(interviewId: string): Promise<void> {
 
     let triggered: ChatMessage | null = null;
     let lastSeenId = ac.lastSeenChatMessageId;
+    // Phase N — bundle lastHumanActivityAt updates into the same single
+    // store.update at the end of the loop. sawHumanText is true if any
+    // non-bot, non-empty message was observed.
+    let sawHumanText = false;
     for (const msg of newMessages) {
       lastSeenId = msg.id;
       const fromId = msg.from?.user?.id;
@@ -459,6 +533,8 @@ async function tick(interviewId: string): Promise<void> {
       // the Skip + Stop buttons in the dashboard.
       if (fromId === ctx.botUserGuid) continue;
       if (!text) continue;
+      // Substantive non-bot message — stamps the watchdog clock.
+      sawHumanText = true;
       const lower = text.toLowerCase();
       const matched = ctx.opts.triggerKeywords.some((kw) =>
         new RegExp(`\\b${escapeRegex(kw.toLowerCase())}\\b`).test(lower)
@@ -469,10 +545,20 @@ async function tick(interviewId: string): Promise<void> {
       }
     }
 
-    // Persist lastSeen even if we didn't trigger — avoids re-scanning old msgs.
-    if (lastSeenId && lastSeenId !== ac.lastSeenChatMessageId) {
+    // Persist lastSeen + lastHumanActivityAt even if we didn't trigger —
+    // avoids re-scanning old msgs AND keeps the watchdog fresh.
+    const newActivityStamp = sawHumanText
+      ? new Date().toISOString()
+      : ac.lastHumanActivityAt;
+    const lastSeenChanged = !!lastSeenId && lastSeenId !== ac.lastSeenChatMessageId;
+    const activityChanged = newActivityStamp !== ac.lastHumanActivityAt;
+    if (lastSeenChanged || activityChanged) {
       store.update(interviewId, {
-        autoConduct: { ...ac, lastSeenChatMessageId: lastSeenId },
+        autoConduct: {
+          ...ac,
+          lastSeenChatMessageId: lastSeenId,
+          lastHumanActivityAt: newActivityStamp,
+        },
       });
     }
 

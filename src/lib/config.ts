@@ -30,21 +30,11 @@ export const config = {
     get deepseekBaseUrl() { return process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1"; },
   },
   app: {
-    /**
-     * Phase L (2026-05-31) — outputDir is derived from src/lib/paths.ts
-     * (MEDHA_DATA_DIR override). The legacy INTERVIEWLY_OUTPUT_DIR env var
-     * is no longer honored — set MEDHA_DATA_DIR to override the root
-     * location of runtime writes.
-     *
-     * Lazy require deliberately: paths.ts has a side-effecting mkdirSync
-     * at import time that we want to defer until first actual filesystem
-     * access (rather than running it just because some unrelated route
-     * imported config at boot).
-     */
-    get outputDir() {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      return (require("@/lib/paths") as typeof import("@/lib/paths")).MEDHA_OUTPUT_DIR;
-    },
+    // Phase M (2026-05-31) — outputDir getter removed. Probe forms no
+    // longer persist to disk (in-memory + email-only); the only remaining
+    // runtime write is interviews.json which uses PERSIST_PATH from
+    // src/lib/persist.ts directly. Smoke scripts write to MEDHA_DATA_DIR/
+    // smoke-output/ (each one mkdirs that subdir explicitly).
     get logLevel()    { return process.env.LOG_LEVEL ?? "info"; },
     get nextAuthUrl() { return process.env.NEXTAUTH_URL ?? "http://localhost:3000"; },
     get testMode()    { return process.env.MEDHA_TEST_MODE === "true"; },

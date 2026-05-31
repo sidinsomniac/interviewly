@@ -16,23 +16,24 @@ export async function GET(
   }
 
   // Phase J fix — band-aid against multi-process persist races: when the
-  // in-memory copy looks stuck ("ended" but no probe-form file yet), check
-  // the on-disk snapshot directly. Another worker may have written
-  // completion since this process loaded its store. After adopting disk's
-  // version, back-write it via store.set so subsequent polls on this
-  // worker stop re-reading disk. store.set bypasses persistInterviews —
-  // no write cycle.
+  // in-memory copy looks stuck ("ended"), check the on-disk snapshot
+  // directly. Another worker may have written completion since this
+  // process loaded its store. After adopting disk's version, back-write
+  // it via store.set so subsequent polls on this worker stop re-reading
+  // disk. store.set bypasses persistInterviews — no write cycle.
   //
-  // Single-process production: the race never happens; disk === in-memory
-  // and this branch returns nothing newer.
-  if (inMemory.status === "ended" && !inMemory.probeFormFilePath) {
+  // Phase M (2026-05-31) — predicate updated: probeFormFilePath is gone,
+  // so "stale" means `status === "ended"` alone, and "fresh enough to
+  // adopt" means disk has `status === "completed"` (or `filledForm` is
+  // populated, which still indicates finalize ran). Single-process
+  // production: race never happens; disk === in-memory.
+  if (inMemory.status === "ended") {
     try {
       const onDisk = JSON.parse(fs.readFileSync(PERSIST_PATH, "utf-8")) as InterviewMetadata[];
       const fresh = onDisk.find((iv) => iv.id === id);
       if (
         fresh &&
         (fresh.status === "completed" ||
-          !!fresh.probeFormFilePath ||
           !!fresh.filledForm?.header?.candidateName)
       ) {
         log.info(

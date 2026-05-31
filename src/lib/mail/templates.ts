@@ -102,6 +102,39 @@ export function selectionEmail(
   return { subject, html };
 }
 
+// ── 1b. Rejection email (to candidate) ─────────────────────────
+// Added 2026-05-31 to wire up the previously-disabled Reject button
+// in /recruiter/screen. Tone is deliberately warm + brief; the
+// optional `reason` field lets a recruiter add a one-liner without
+// the API caller having to template their own body.
+
+export interface RejectionEmailOpts {
+  candidateName: string;
+  roleAppliedFor: string;
+  /** Optional one-liner from the recruiter; appended to the standard body. */
+  reason?: string;
+}
+
+export function rejectionEmail(
+  opts: RejectionEmailOpts
+): { subject: string; html: string } {
+  const safeName = escapeHtml(opts.candidateName || "there");
+  const safeRole = escapeHtml(opts.roleAppliedFor);
+  const reasonBlock = opts.reason?.trim()
+    ? `<p>${escapeHtml(opts.reason.trim())}</p>`
+    : "";
+  const subject = `Update on your application — ${opts.roleAppliedFor}`;
+  const html = wrapHtml(`
+    <h1>Thank you for your interest</h1>
+    <p>Hi ${safeName},</p>
+    <p>Thank you for taking the time to apply for the <strong>${safeRole}</strong> role and for letting us review your background. After careful consideration, we've decided to move forward with other candidates whose experience more closely matches what we're looking for at this stage.</p>
+    ${reasonBlock}
+    <p>This is not a reflection of your abilities — we encourage you to apply again as new roles open up. We genuinely wish you the very best for what's ahead.</p>
+    <p>Warm regards,<br/>The Hiring Team</p>
+  `);
+  return { subject, html };
+}
+
 // ── 2. Recruiter scheduled email (to recruiter) ────────────────
 
 export interface RecruiterScheduledEmailOpts {

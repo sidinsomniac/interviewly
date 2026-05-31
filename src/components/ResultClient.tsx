@@ -7,20 +7,14 @@ import { getRoleSchema } from "@/lib/probeform/registry";
 import type { InterviewMetadata } from "@/types/index";
 
 /**
- * Phase J fix — a probe form is "ready" when any of these is true:
- *   - status === "completed" (normal happy path)
- *   - probeFormFilePath set (finalize wrote the .xlsx — file definitely exists)
- *   - filledForm.header.candidateName populated (mapping ran successfully)
- *
- * Any one of these means the recruiter can download. We see all three in
- * the same store.update at the end of finalize, but the persist layer is
- * racy in multi-process dev, so the status field may not flip in the
- * on-disk JSON even when the file landed.
+ * Phase M (2026-05-31) — "ready" simplified to terminal status only. The
+ * probe-form file no longer exists (in-memory + email-only), so the older
+ * probeFormFilePath / filledForm fallbacks are gone. `finalize()` always
+ * stamps status: "completed" before attempting the email send, so polling
+ * stops cleanly even when the recruiterEmail is missing or the send fails.
  */
 const isReady = (iv: InterviewMetadata) =>
-  iv.status === "completed" ||
-  !!iv.probeFormFilePath ||
-  !!iv.filledForm?.header?.candidateName;
+  iv.status === "completed" || iv.status === "failed";
 
 export function ResultClient({ interview: initial }: { interview: InterviewMetadata }) {
   const [interview, setInterview] = useState(initial);
@@ -41,7 +35,7 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
     }, 3000);
 
     return () => clearInterval(timer);
-  }, [interview.status, interview.probeFormFilePath, interview.filledForm, initial.id]);
+  }, [interview.status, interview.probeFormSentAt, interview.filledForm, initial.id]);
 
   // Elapsed-seconds ticker for the "taking longer than usual" notice.
   // Resets on remount — `pollStartedAt` measures from first visit, not
@@ -52,7 +46,7 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
       setElapsedSec(Math.floor((Date.now() - pollStartedAt.current) / 1000));
     }, 5000);
     return () => clearInterval(t);
-  }, [interview.status, interview.probeFormFilePath, interview.filledForm]);
+  }, [interview.status, interview.probeFormSentAt, interview.filledForm]);
 
   async function retry() {
     const res = await fetch(`/api/interviews/${initial.id}/end`, { method: "POST" });
@@ -94,13 +88,43 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
 
       {isReady(interview) && interview.status !== "failed" && (
         <div className="space-y-4">
-          <div className="rounded-xl border border-green-200 bg-green-50 p-4">
-            <p className="text-sm font-semibold text-green-800 mb-1">Probe form ready</p>
-            <p className="text-sm text-green-700">
-              {interview.postedQuestionIndices?.length ?? 0} questions posted ·{" "}
-              {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
-            </p>
-          </div>
+          {/* Phase M: three-banner delivery status replaces the prior
+              download button. Mutually exclusive:
+                green — sendMail returned 2xx; probeFormSentAt stamped
+                amber — recruiterEmail set but sendMail failed (logs hold detail)
+                gray  — no recruiterEmail (manual /interviews/new flow); no xlsx generated
+              The amber state is a brief one-cycle flash on the happy path
+              because finalize() flips status before stamping probeFormSentAt;
+              acceptable per the 3s polling cadence. */}
+          {interview.probeFormSentAt ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+              <p className="text-sm font-semibold text-green-800 mb-1">Probe form delivered</p>
+              <p className="text-sm text-green-700">
+                Sent to {interview.recruiterEmail} at{" "}
+                {new Date(interview.probeFormSentAt).toLocaleTimeString()}.
+              </p>
+              <p className="text-xs text-green-700 mt-1">
+                {interview.postedQuestionIndices?.length ?? 0} questions posted ·{" "}
+                {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
+              </p>
+            </div>
+          ) : interview.recruiterEmail ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-800 mb-1">
+                Probe form generated but email delivery failed
+              </p>
+              <p className="text-sm text-amber-700">
+                Check server logs for the sendMail error. The .xlsx was not persisted to disk.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-sm font-semibold text-gray-700 mb-1">Manual interview</p>
+              <p className="text-sm text-gray-600">
+                No recruiter email configured — probe form not generated.
+              </p>
+            </div>
+          )}
 
           {interview.filledForm?.header?.domainFeedbackSummary && (
             <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -110,13 +134,6 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
               </p>
             </div>
           )}
-
-          <a
-            href={`/api/interviews/${interview.id}/probe-form`}
-            className="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors"
-          >
-            Download Probe Form (.xlsx)
-          </a>
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { MEDHA_OUTPUT_DIR } from "@/lib/paths";
+import { MEDHA_DATA_DIR } from "@/lib/paths";
 import type { InterviewMetadata } from "@/types/index";
 
 /**
@@ -8,11 +8,12 @@ import type { InterviewMetadata } from "@/types/index";
  * directly for its disk-fresh band-aid (Phase J fix). Single source of
  * truth for the on-disk JSON location.
  *
- * Phase L (2026-05-31) — now rooted in MEDHA_OUTPUT_DIR (defaults to
- * %USERPROFILE%/.medha/output), OUTSIDE the project root so the Next
- * dev file watcher cannot see writes here under any circumstance.
+ * Phase L (2026-05-31) — moved out of project root to ~/.medha/.
+ * Phase M (2026-05-31) — re-rooted to MEDHA_DATA_DIR directly (was
+ * MEDHA_OUTPUT_DIR) since the `output/` subdir is gone. Migration:
+ * `Move-Item ~/.medha/output/interviews.json ~/.medha/interviews.json`.
  */
-export const PERSIST_PATH = path.join(MEDHA_OUTPUT_DIR, "interviews.json");
+export const PERSIST_PATH = path.join(MEDHA_DATA_DIR, "interviews.json");
 
 /**
  * Race-safe persist write.

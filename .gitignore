@@ -13,6 +13,8 @@ dist/
 
 # Misc
 docs/
+data/output/
+!data/output/.gitkeep
 .DS_Store
 *.pem
 

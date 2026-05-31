@@ -33,15 +33,40 @@ const DEFAULT_TIMEOUT_MS = 8 * 60_000;
 const DEFAULT_KEYWORDS = ["done", "next", "ready"];
 const DEFAULT_POLL_MS = 5_000;
 
+// Phase N (2026-05-31) — per-interview in-flight tracking. Concurrent
+// POSTs for the same id share one work-promise; the FIRST does the real
+// side-effects (bot/join + speak + consent-post), the rest await its
+// outcome and respond with the same payload+status (each constructed as
+// a fresh NextResponse to avoid sharing one Response object across two
+// HTTP responses). Map entry is deleted on settle so a legitimate
+// re-entry after Stop+Restart works. The 409 idempotency guard inside
+// the handler stays as second-line defense for calls that arrive AFTER
+// this promise resolves and `autoConduct.active` has flipped true.
+type StartResult = { payload: unknown; status: number };
+const startInFlight = new Map<string, Promise<StartResult>>();
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const interview = store.get(id);
-  if (!interview) {
-    return NextResponse.json({ ok: false, error: "Interview not found" }, { status: 404 });
+
+  const existing = startInFlight.get(id);
+  if (existing) {
+    log.warn(
+      { interviewId: id },
+      "auto-conduct/start: single-flight — joining in-flight call"
+    );
+    const { payload, status } = await existing;
+    return NextResponse.json(payload, { status });
   }
+
+  const work: Promise<StartResult> = (async (): Promise<StartResult> => {
+   try {
+    const interview = store.get(id);
+    if (!interview) {
+      return { payload: { ok: false, error: "Interview not found" }, status: 404 };
+    }
   // Phase L post-mortem (2026-05-31) — idempotency guard against the
   // duplicate-bot scenario: stalled UI → double-click Start → N bot/join's,
   // N welcome speeches, N consent posts firing in parallel. Server-side
@@ -55,14 +80,14 @@ export async function POST(
       },
       "auto-conduct/start: idempotency guard — already active, returning 409"
     );
-    return NextResponse.json(
-      {
+    return {
+      payload: {
         ok: false,
         error: "auto-conduct already active for this interview",
         autoConduct: interview.autoConduct,
       },
-      { status: 409 }
-    );
+      status: 409,
+    };
   }
   // Phase G: log conductMode but don't branch — Phase H wires Mode B's voice
   // path. Both modes share the transcript-keyword loop today.
@@ -71,16 +96,16 @@ export async function POST(
   // first; Mode B will have Medha speak + post welcome herself from this very
   // route, so the gate must not fire for auto interviews.
   if (interview.conductMode === "manual" && !interview.welcomePostedAt) {
-    return NextResponse.json(
-      { ok: false, error: "Post the welcome + consent message before starting auto-conduct." },
-      { status: 409 }
-    );
+    return {
+      payload: { ok: false, error: "Post the welcome + consent message before starting auto-conduct." },
+      status: 409,
+    };
   }
   if (interview.status === "completed" || interview.status === "failed") {
-    return NextResponse.json(
-      { ok: false, error: `Cannot start auto-conduct on a ${interview.status} interview.` },
-      { status: 409 }
-    );
+    return {
+      payload: { ok: false, error: `Cannot start auto-conduct on a ${interview.status} interview.` },
+      status: 409,
+    };
   }
 
   let body: z.infer<typeof StartBodySchema> = {};
@@ -132,6 +157,11 @@ export async function POST(
       lastSeenChatMessageId,
       perQuestionTimeoutMs: timeoutMs,
       triggerKeywords: keywords,
+      // Phase N (2026-05-31) — seed the watchdog clock so a slow-joining
+      // candidate has the full MEDHA_PRE_CONSENT_IDLE_TIMEOUT_MS window
+      // before being kicked. autoConductor.tick reads this and falls
+      // back to startedAt if undefined.
+      lastHumanActivityAt: now.toISOString(),
       ...(isAutoMode ? { awaitingConsent: true } : {}),
     },
   });
@@ -314,5 +344,16 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ ok: true, autoConduct: store.get(id)?.autoConduct });
+    return {
+      payload: { ok: true, autoConduct: store.get(id)?.autoConduct },
+      status: 200,
+    };
+   } finally {
+    startInFlight.delete(id);
+   }
+  })();
+  startInFlight.set(id, work);
+
+  const { payload, status } = await work;
+  return NextResponse.json(payload, { status });
 }

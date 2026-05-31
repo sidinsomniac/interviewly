@@ -6,8 +6,11 @@
 // existing per-email cache in `resolveOrganizerGuid` (misnomer; works
 // for any user). Uses POST /users/{botGuid}/sendMail.
 //
-// Fire-and-forget: never throws. Failures are logged warn so callers
-// (approve route, finalize) can route them without a try/catch wrapper.
+// Never throws — failures are logged warn. Returns Promise<boolean>:
+// true on 2xx Graph accept, false on caught exception or skipped send
+// (no valid recipients). Phase K callers (selectionEmail / recruiter
+// scheduled) keep using `void sendMail(...)` and ignore the return;
+// Phase M's probe-form caller awaits + stamps `probeFormSentAt` on true.
 // Graph returns 202 Accepted on queueing — no message id is returned.
 //
 // Required app permission on the bot user: Mail.Send. (Application
@@ -32,7 +35,7 @@ export interface SendMailOpts {
   attachments?: MailAttachment[];
 }
 
-export async function sendMail(opts: SendMailOpts): Promise<void> {
+export async function sendMail(opts: SendMailOpts): Promise<boolean> {
   const toList = Array.isArray(opts.to) ? opts.to : [opts.to];
   const recipients = toList
     .filter((addr) => !!addr && addr.includes("@"))
@@ -40,7 +43,7 @@ export async function sendMail(opts: SendMailOpts): Promise<void> {
 
   if (recipients.length === 0) {
     log.warn({ subject: opts.subject }, "sendMail: no valid recipients — skipping");
-    return;
+    return false;
   }
 
   try {
@@ -79,6 +82,7 @@ export async function sendMail(opts: SendMailOpts): Promise<void> {
       },
       "sendMail: 202 Accepted"
     );
+    return true;
   } catch (err) {
     log.warn(
       {
@@ -88,5 +92,6 @@ export async function sendMail(opts: SendMailOpts): Promise<void> {
       },
       "sendMail failed (non-fatal)"
     );
+    return false;
   }
 }
