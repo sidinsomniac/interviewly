@@ -1,50 +1,86 @@
 import Link from "next/link";
+import { BentoCard } from "@/components/ui/BentoCard";
+import { BentoGrid } from "@/components/ui/BentoGrid";
+import { SparkleIcon, ChatIcon, SendIcon } from "@/components/ui/icons";
 
 export default function Home() {
   return (
-    <main className="flex flex-col flex-1 items-center justify-center px-4 py-16">
-      <div className="text-center max-w-2xl">
-        <div className="mb-4 inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 ring-1 ring-blue-200">
-          AI-powered interviewing
-        </div>
-        <h1 className="text-5xl font-bold tracking-tight text-gray-400 mb-4">Medha</h1>
-        <p className="text-xl text-gray-500 mb-10">
-          AI-driven Microsoft Teams interviewer that generates PS probe forms automatically — so you can focus on the conversation.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link
-            href="/recruiter/screen"
-            className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-8 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-colors"
-          >
-            🤖 Screen a Candidate
-          </Link>
-          <Link
-            href="/interviews/new"
-            className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-8 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors"
-          >
-            Create New Interview
-          </Link>
-          <Link
-            href="/interviews"
-            className="inline-flex items-center justify-center rounded-lg bg-white px-8 py-3.5 text-base font-semibold text-gray-700 shadow-sm ring-1 ring-gray-300 hover:bg-gray-50 transition-colors"
-          >
-            View History
-          </Link>
-        </div>
-      </div>
-
-      <div className="mt-20 grid grid-cols-1 sm:grid-cols-3 gap-8 max-w-3xl w-full text-center">
-        {[
-          { title: "Auto Question Plans", desc: "Generates round-specific questions tailored to the candidate's experience and JD." },
-          { title: "Live Teams Integration", desc: "Posts questions directly to the Teams meeting chat for a guided interview flow." },
-          { title: "Instant Probe Form", desc: "Analyses the transcript and fills the PS probe form the moment the meeting ends." },
-        ].map(({ title, desc }) => (
-          <div key={title} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-            <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
-            <p className="text-sm text-gray-500">{desc}</p>
+    <main className="px-6 py-16 max-w-6xl mx-auto">
+      {/* Hero bento — 48px tagline + two primary CTAs + ghost link for /interviews/new. */}
+      <BentoGrid className="mb-6">
+        <BentoCard span="col-span-12" hero>
+          <div className="text-center py-8 px-4">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-teams-primary/10 px-3 py-1 text-sm font-medium text-teams-primary ring-1 ring-teams-primary/20">
+              <SparkleIcon className="h-4 w-4" />
+              AI-powered interviewing
+            </div>
+            <h1 className="text-5xl font-bold tracking-tight text-[color:var(--medha-text-primary)] mb-4">
+              Medha — AI Interview Co-pilot
+            </h1>
+            <p className="text-lg text-[color:var(--medha-text-secondary)] mb-8 max-w-2xl mx-auto">
+              AI-driven Microsoft Teams interviewer that screens resumes, runs the meeting,
+              and generates PS probe forms automatically — so you can focus on the conversation.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                href="/recruiter/screen"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-teams-primary px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-teams-primary/30 hover:bg-teams-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teams-primary transition-colors"
+              >
+                Screen a Candidate
+              </Link>
+              <Link
+                href="/interviews"
+                className="inline-flex items-center justify-center rounded-lg bg-white/40 px-8 py-3.5 text-base font-semibold text-teams-primary ring-1 ring-teams-primary/30 hover:bg-white/60 transition-colors"
+              >
+                Browse Interviews
+              </Link>
+            </div>
+            <Link
+              href="/interviews/new"
+              className="mt-5 inline-block text-sm text-[color:var(--medha-text-secondary)] hover:text-teams-primary transition-colors"
+            >
+              Or create an interview manually →
+            </Link>
           </div>
-        ))}
-      </div>
+        </BentoCard>
+      </BentoGrid>
+
+      {/* Feature bento — 3 cards explaining the value prop. */}
+      <BentoGrid>
+        <BentoCard span="col-span-12 sm:col-span-4">
+          <div className="flex items-start gap-3 mb-2">
+            <div className="rounded-lg bg-teams-primary/10 p-2 text-teams-primary">
+              <SparkleIcon className="h-5 w-5" />
+            </div>
+            <h3 className="font-semibold text-[color:var(--medha-text-primary)] mt-1">Auto question plans</h3>
+          </div>
+          <p className="text-sm text-[color:var(--medha-text-secondary)]">
+            Generates round-specific questions tailored to the candidate&apos;s experience and JD.
+          </p>
+        </BentoCard>
+        <BentoCard span="col-span-12 sm:col-span-4">
+          <div className="flex items-start gap-3 mb-2">
+            <div className="rounded-lg bg-teams-primary/10 p-2 text-teams-primary">
+              <ChatIcon className="h-5 w-5" />
+            </div>
+            <h3 className="font-semibold text-[color:var(--medha-text-primary)] mt-1">Live Teams integration</h3>
+          </div>
+          <p className="text-sm text-[color:var(--medha-text-secondary)]">
+            Posts questions directly to the Teams meeting chat for a guided interview flow.
+          </p>
+        </BentoCard>
+        <BentoCard span="col-span-12 sm:col-span-4">
+          <div className="flex items-start gap-3 mb-2">
+            <div className="rounded-lg bg-teams-primary/10 p-2 text-teams-primary">
+              <SendIcon className="h-5 w-5" />
+            </div>
+            <h3 className="font-semibold text-[color:var(--medha-text-primary)] mt-1">Instant probe form</h3>
+          </div>
+          <p className="text-sm text-[color:var(--medha-text-secondary)]">
+            Analyses the transcript and emails the PS probe form the moment the meeting ends.
+          </p>
+        </BentoCard>
+      </BentoGrid>
     </main>
   );
 }

@@ -1,26 +1,103 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   Phase O (2026-06-01) — Teams Fluent palette + bento glassmorphism.
+   Booth pages: /, /recruiter/screen, /interviews/[id]/{live,result}.
+   Other pages keep their previous Tailwind-default styling and are
+   simply rendered on top of the same mesh background.
+   ============================================================ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+/* @theme — Tailwind v4 zero-config token registration. Every
+   --color-teams-* declaration auto-generates bg-teams-*, text-teams-*,
+   ring-teams-*, border-teams-*, and the /<opacity> modifier
+   (e.g. bg-teams-primary/10). Add a new shade here → it's available
+   as a class everywhere automatically. */
+@theme {
+  --color-teams-primary: #6264A7;
+  --color-teams-primary-hover: #464775;
+  --color-teams-success: #13A10E;
+  --color-teams-error: #C4314B;
+  --color-teams-warning: #E89412;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+/* Non-token vars — consumed directly by the .glass, .glass-hero,
+   and body mesh rules. Not exposed as Tailwind utilities (no need
+   — they're surface-treatment values, not semantic colors). */
+:root {
+  --medha-page-bg: #F5F5F5;
+  --medha-glass-bg: rgba(255, 255, 255, 0.6);
+  --medha-glass-bg-hero: rgba(255, 255, 255, 0.7);
+  --medha-border-subtle: rgba(255, 255, 255, 0.4);
+  --medha-border-accent: rgba(98, 100, 167, 0.15);
+  --medha-text-primary: #242424;
+  --medha-text-secondary: #616161;
+  --medha-mesh-blob-a: rgba(98, 100, 167, 0.18);
+  --medha-mesh-blob-b: rgba(123, 131, 235, 0.12);
+  --medha-mesh-blob-c: rgba(70, 71, 117, 0.10);
+  --medha-mesh-blob-d: rgba(98, 100, 167, 0.08);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* Teams primary hue is intentionally identical in dark — recognisable
+       brand anchor. The hover/success/error/warning get lighter so they
+       read well against the deep page bg. */
+    --color-teams-primary-hover: #7B83EB;
+    --color-teams-success: #92C353;
+    --color-teams-error: #F5808C;
+    --color-teams-warning: #FCB454;
+    --medha-page-bg: #1F1F23;
+    --medha-glass-bg: rgba(28, 28, 32, 0.55);
+    --medha-glass-bg-hero: rgba(36, 36, 42, 0.65);
+    --medha-border-subtle: rgba(255, 255, 255, 0.08);
+    --medha-border-accent: rgba(98, 100, 167, 0.3);
+    --medha-text-primary: #FFFFFF;
+    --medha-text-secondary: #C8C6C4;
+    --medha-mesh-blob-a: rgba(98, 100, 167, 0.28);
+    --medha-mesh-blob-b: rgba(123, 131, 235, 0.18);
+    --medha-mesh-blob-c: rgba(70, 71, 117, 0.16);
+    --medha-mesh-blob-d: rgba(98, 100, 167, 0.14);
   }
 }
 
+/* Mesh background: solid page color + four soft radial blobs layered
+   on top. background-attachment: fixed so the mesh doesn't drag while
+   scrolling. The font-family override (Arial) from the prior
+   globals.css is intentionally REMOVED — `font-sans` on <body> in
+   app/layout.tsx now resolves through @theme to Geist. */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--medha-page-bg);
+  background-image:
+    radial-gradient(at 18% 14%, var(--medha-mesh-blob-a) 0px, transparent 50%),
+    radial-gradient(at 82% 12%, var(--medha-mesh-blob-b) 0px, transparent 55%),
+    radial-gradient(at 12% 88%, var(--medha-mesh-blob-c) 0px, transparent 50%),
+    radial-gradient(at 88% 86%, var(--medha-mesh-blob-d) 0px, transparent 60%);
+  background-attachment: fixed;
+  color: var(--medha-text-primary);
+}
+
+/* Glass utility — the bento card surface. The @utility v4 directive
+   registers this as a custom Tailwind class (composable with hover:/
+   focus: variants if a future caller needs it). backdrop-filter
+   needs both standard + -webkit- prefixes for Safari. */
+@utility glass {
+  background-color: var(--medha-glass-bg);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid var(--medha-border-subtle);
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px -10px rgba(98, 100, 167, 0.18);
+}
+
+@utility glass-hero {
+  background-color: var(--medha-glass-bg-hero);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--medha-border-subtle);
+  border-radius: 1.25rem;
+  box-shadow: 0 20px 60px -20px rgba(98, 100, 167, 0.25);
+  outline: 1px solid var(--medha-border-accent);
+  outline-offset: -1px;
 }

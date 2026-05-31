@@ -8,11 +8,19 @@ import { QuestionList } from "@/components/QuestionList";
 import { StatusPanel } from "@/components/StatusPanel";
 import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { UsageFooter } from "@/components/UsageFooter";
+import { BentoCard } from "@/components/ui/BentoCard";
+import { BentoGrid } from "@/components/ui/BentoGrid";
+import { VerdictBadge } from "@/components/ui/VerdictBadge";
 
 // Mirrored from MEDHA_TEST_MODE on the server via NEXT_PUBLIC_MEDHA_TEST_MODE.
 // Inlined at build time by Next; safe to evaluate at module scope.
 const TEST_MODE = process.env.NEXT_PUBLIC_MEDHA_TEST_MODE === "true";
 
+// Phase O (2026-06-01) — UI overhaul.
+// The three-flex layout becomes a bento envelope: hero card + Question
+// list (col-span-8 row-span-2) + Status panel (col-span-4) + Transcript
+// (col-span-4 below status). The four child panels keep their internals
+// untouched (post-expo polish); only the outer LiveDashboard frame moves.
 export function LiveDashboard({ interview: initial }: { interview: InterviewMetadata }) {
   const [interview, setInterview] = useState(initial);
   const router = useRouter();
@@ -23,38 +31,46 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
     if (data.ok) setInterview(data.interview);
   }
 
-  // Phase I — once finalize completes, jump the recruiter straight to the
-  // result page. The "ended" overlay below softens the wait between hangup
-  // and "completed" (probe form generation can take several seconds on a
-  // real meeting). useEffect dep on status ensures the navigation fires
-  // exactly once.
-  //
-  // Phase M (2026-05-31) — readiness simplified to status-only. The
-  // probe-form file no longer exists, so the older probeFormFilePath /
-  // filledForm fallbacks are gone. finalize() always stamps status:
-  // "completed" before attempting the email send, so this fires reliably.
+  // Phase M auto-redirect — preserved byte-identical.
   useEffect(() => {
     if (interview.status === "completed") {
       router.replace(`/interviews/${interview.id}/result`);
     }
   }, [interview.status, interview.id, router]);
 
+  const status = interview.status;
+  const validBadgeStatus =
+    status === "draft" || status === "scheduled" || status === "in_progress" ||
+    status === "ended" || status === "completed" || status === "failed"
+      ? status
+      : null;
+
   return (
-    <div className="relative flex flex-col h-screen">
+    <div className="relative min-h-screen flex flex-col">
+      {/* Phase M "ended" overlay — now uses the brand-consistent glass-hero
+          surface instead of the prior bg-white/95 backdrop. Same z-index +
+          intent: cover the live UI while finalize runs. */}
       {interview.status === "ended" && (
         <div
           role="status"
-          className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/95 backdrop-blur-sm"
+          className="absolute inset-0 z-50 flex flex-col items-center justify-center"
         >
-          <div className="text-3xl mb-3">📝</div>
-          <p className="text-sm font-medium text-gray-900">Interview ended</p>
-          <p className="text-xs text-gray-500 mt-1">Generating probe form…</p>
+          <div className="glass-hero p-10 text-center max-w-md">
+            <div className="text-4xl mb-3">📝</div>
+            <p className="text-base font-semibold text-[color:var(--medha-text-primary)]">
+              Interview ended
+            </p>
+            <p className="text-sm text-[color:var(--medha-text-secondary)] mt-1">
+              Generating probe form…
+            </p>
+          </div>
         </div>
       )}
+
       {TEST_MODE && (
         <div
           role="status"
-          className="flex-shrink-0 bg-amber-100 border-b border-amber-300 text-amber-900 px-6 py-2 text-sm flex items-center gap-2"
+          className="flex-shrink-0 bg-teams-warning/10 border-b border-teams-warning/30 text-teams-warning px-6 py-2 text-sm flex items-center gap-2"
         >
           <span aria-hidden>🧪</span>
           <span>
@@ -65,33 +81,57 @@ export function LiveDashboard({ interview: initial }: { interview: InterviewMeta
           </span>
         </div>
       )}
-      <header className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-3 flex items-center gap-4">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold text-gray-900 truncate">
-            {interview.candidateName}
-          </h1>
-          <p className="text-xs text-gray-500 flex items-center gap-2">
-            <span>{interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</span>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              (interview.conductMode ?? "manual") === "auto" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-700"
-            }`}>
-              {(interview.conductMode ?? "manual") === "auto" ? "🤖 Auto" : "👤 Manual"}
-            </span>
-          </p>
-        </div>
-      </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-[5] overflow-y-auto border-r border-gray-200">
-          <QuestionList interview={interview} onUpdate={refresh} />
-        </div>
-        <div className="flex-[3] overflow-hidden">
-          <TranscriptPanel interview={interview} />
-        </div>
-        <div className="flex-[2] overflow-y-auto border-l border-gray-200">
-          <StatusPanel interview={interview} onUpdate={refresh} />
-        </div>
-      </div>
+      <main className="flex-1 px-6 py-6 max-w-7xl w-full mx-auto">
+        <BentoGrid>
+          {/* Hero — candidate + role + status pill + mode chip */}
+          <BentoCard span="col-span-12" hero>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex-1 min-w-0">
+                <h1 className="text-2xl font-bold tracking-tight text-[color:var(--medha-text-primary)] truncate">
+                  {interview.candidateName}
+                </h1>
+                <p className="text-sm text-[color:var(--medha-text-secondary)] mt-1 flex items-center gap-2 flex-wrap">
+                  <span>
+                    {interview.roleAppliedFor} ·{" "}
+                    {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
+                  </span>
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-teams-primary/10 text-teams-primary">
+                    {(interview.conductMode ?? "manual") === "auto" ? "🤖 Auto" : "👤 Manual"}
+                  </span>
+                </p>
+              </div>
+              {validBadgeStatus && (
+                <VerdictBadge verdict={validBadgeStatus} size="md" />
+              )}
+            </div>
+          </BentoCard>
+
+          {/* QuestionList — takes the wide left, two row-heights tall to
+              align with the Status + Transcript stack. Child internals
+              untouched per Phase O scope. */}
+          <BentoCard span="col-span-12 lg:col-span-8 lg:row-span-2" className="overflow-hidden">
+            <div className="-m-6 max-h-[calc(100vh-260px)] overflow-y-auto">
+              <QuestionList interview={interview} onUpdate={refresh} />
+            </div>
+          </BentoCard>
+
+          {/* StatusPanel — top of the right column */}
+          <BentoCard span="col-span-12 lg:col-span-4" className="overflow-hidden">
+            <div className="-m-6 max-h-[calc(50vh-130px)] overflow-y-auto">
+              <StatusPanel interview={interview} onUpdate={refresh} />
+            </div>
+          </BentoCard>
+
+          {/* TranscriptPanel — bottom of the right column */}
+          <BentoCard span="col-span-12 lg:col-span-4" className="overflow-hidden">
+            <div className="-m-6 max-h-[calc(50vh-130px)] overflow-hidden">
+              <TranscriptPanel interview={interview} />
+            </div>
+          </BentoCard>
+        </BentoGrid>
+      </main>
+
       <UsageFooter interviewId={interview.id} />
     </div>
   );

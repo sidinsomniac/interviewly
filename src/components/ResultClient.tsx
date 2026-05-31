@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { StatusBadge, Spinner } from "@/components/LoadingStates";
+import { Spinner } from "@/components/LoadingStates";
 import { TranscriptUpload } from "@/components/TranscriptUpload";
 import { getRoleSchema } from "@/lib/probeform/registry";
+import { BentoCard } from "@/components/ui/BentoCard";
+import { BentoGrid } from "@/components/ui/BentoGrid";
+import { VerdictBadge } from "@/components/ui/VerdictBadge";
 import type { InterviewMetadata } from "@/types/index";
 
 /**
@@ -12,6 +15,9 @@ import type { InterviewMetadata } from "@/types/index";
  * probeFormFilePath / filledForm fallbacks are gone. `finalize()` always
  * stamps status: "completed" before attempting the email send, so polling
  * stops cleanly even when the recruiterEmail is missing or the send fails.
+ *
+ * Phase O (2026-06-01) — UI moved to bento + Teams palette. Business
+ * logic (polling, retry, isReady predicate) is byte-identical.
  */
 const isReady = (iv: InterviewMetadata) =>
   iv.status === "completed" || iv.status === "failed";
@@ -37,9 +43,6 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
     return () => clearInterval(timer);
   }, [interview.status, interview.probeFormSentAt, interview.filledForm, initial.id]);
 
-  // Elapsed-seconds ticker for the "taking longer than usual" notice.
-  // Resets on remount — `pollStartedAt` measures from first visit, not
-  // from when the interview entered "ended" (acceptable for the demo).
   useEffect(() => {
     if (isReady(interview) || interview.status === "failed") return;
     const t = setInterval(() => {
@@ -54,112 +57,164 @@ export function ResultClient({ interview: initial }: { interview: InterviewMetad
     if (data.ok) setInterview((iv) => ({ ...iv, status: "ended", errorMessage: undefined }));
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <div className="flex items-center gap-3 mb-1">
-          <h1 className="text-2xl font-bold text-gray-900">{interview.candidateName}</h1>
-          <StatusBadge status={interview.status} />
-        </div>
-        <p className="text-sm text-gray-500">{interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}</p>
-      </div>
+  // Delivery state (matches Phase M three-banner logic byte-identical).
+  const deliveryState: "delivered" | "failed" | "manual" =
+    interview.probeFormSentAt
+      ? "delivered"
+      : interview.recruiterEmail
+        ? "failed"
+        : "manual";
 
-      {!isReady(interview) && interview.status === "ended" && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-6 flex items-start gap-4">
-          <Spinner size="lg" />
-          <div className="flex-1">
-            <p className="font-semibold text-blue-900">Generating probe form…</p>
-            <p className="text-sm text-blue-700 mt-1">Waiting for transcript from Teams. This may take up to 5 minutes.</p>
-            {elapsedSec > 90 && (
-              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                <p className="text-sm font-medium text-amber-900">Taking longer than usual.</p>
-                <p className="text-xs text-amber-800 mt-0.5">The probe form file may already exist — try reloading.</p>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100"
-                >
-                  Reload
-                </button>
-              </div>
-            )}
+  // Transcript preview — first 6 lines if populated. Optional.
+  const transcriptPreview = interview.transcript?.slice(0, 6) ?? [];
+
+  return (
+    <BentoGrid>
+      {/* Verdict hero */}
+      <BentoCard span="col-span-12" hero>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="mb-3">
+              <VerdictBadge verdict={interview.status} size="lg" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight text-[color:var(--medha-text-primary)]">
+              {interview.candidateName}
+            </h1>
+            <p className="text-sm text-[color:var(--medha-text-secondary)] mt-1">
+              {interview.roleAppliedFor} · {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
+            </p>
           </div>
         </div>
+        {interview.filledForm?.header?.domainFeedbackSummary && (
+          <p className="mt-4 text-sm text-[color:var(--medha-text-primary)] leading-relaxed line-clamp-3">
+            {interview.filledForm.header.domainFeedbackSummary}
+          </p>
+        )}
+      </BentoCard>
+
+      {/* Ended-state — interview wrapped up, finalize in flight */}
+      {!isReady(interview) && interview.status === "ended" && (
+        <BentoCard span="col-span-12" accent="warning">
+          <div className="flex items-start gap-4">
+            <div className="text-teams-warning"><Spinner size="lg" /></div>
+            <div className="flex-1">
+              <p className="font-semibold text-[color:var(--medha-text-primary)]">Generating probe form…</p>
+              <p className="text-sm text-[color:var(--medha-text-secondary)] mt-1">
+                Waiting for transcript from Teams. This may take up to 5 minutes.
+              </p>
+              {elapsedSec > 90 && (
+                <div className="mt-3 rounded-lg border border-teams-warning/40 bg-teams-warning/10 p-3">
+                  <p className="text-sm font-medium text-teams-warning">Taking longer than usual.</p>
+                  <p className="text-xs text-[color:var(--medha-text-secondary)] mt-0.5">
+                    The probe form file may already exist — try reloading.
+                  </p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-teams-warning/50 bg-white/60 px-3 py-1 text-xs font-medium text-teams-warning hover:bg-white/80"
+                  >
+                    Reload
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </BentoCard>
       )}
 
+      {/* Ready (not failed) — delivery banner + summary + transcript preview */}
       {isReady(interview) && interview.status !== "failed" && (
-        <div className="space-y-4">
-          {/* Phase M: three-banner delivery status replaces the prior
-              download button. Mutually exclusive:
-                green — sendMail returned 2xx; probeFormSentAt stamped
-                amber — recruiterEmail set but sendMail failed (logs hold detail)
-                gray  — no recruiterEmail (manual /interviews/new flow); no xlsx generated
-              The amber state is a brief one-cycle flash on the happy path
-              because finalize() flips status before stamping probeFormSentAt;
-              acceptable per the 3s polling cadence. */}
-          {interview.probeFormSentAt ? (
-            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
-              <p className="text-sm font-semibold text-green-800 mb-1">Probe form delivered</p>
-              <p className="text-sm text-green-700">
-                Sent to {interview.recruiterEmail} at{" "}
-                {new Date(interview.probeFormSentAt).toLocaleTimeString()}.
+        <>
+          {/* Delivery card — three states */}
+          {deliveryState === "delivered" && (
+            <BentoCard
+              span={transcriptPreview.length > 0 ? "col-span-12 md:col-span-6" : "col-span-12"}
+              accent="success"
+              title="Probe form delivered"
+            >
+              <p className="text-sm text-[color:var(--medha-text-primary)]">
+                Sent to <strong>{interview.recruiterEmail}</strong> at{" "}
+                {new Date(interview.probeFormSentAt!).toLocaleTimeString()}.
               </p>
-              <p className="text-xs text-green-700 mt-1">
+              <p className="text-xs text-[color:var(--medha-text-secondary)] mt-2">
                 {interview.postedQuestionIndices?.length ?? 0} questions posted ·{" "}
                 {getRoleSchema(interview.roleId)?.displayName ?? interview.roleId}
               </p>
-            </div>
-          ) : interview.recruiterEmail ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm font-semibold text-amber-800 mb-1">
-                Probe form generated but email delivery failed
+            </BentoCard>
+          )}
+          {deliveryState === "failed" && (
+            <BentoCard
+              span={transcriptPreview.length > 0 ? "col-span-12 md:col-span-6" : "col-span-12"}
+              accent="warning"
+              title="Email delivery failed"
+            >
+              <p className="text-sm text-[color:var(--medha-text-primary)]">
+                Probe form was generated but the email send returned non-2xx.
               </p>
-              <p className="text-sm text-amber-700">
+              <p className="text-xs text-[color:var(--medha-text-secondary)] mt-2">
                 Check server logs for the sendMail error. The .xlsx was not persisted to disk.
               </p>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-sm font-semibold text-gray-700 mb-1">Manual interview</p>
-              <p className="text-sm text-gray-600">
+            </BentoCard>
+          )}
+          {deliveryState === "manual" && (
+            <BentoCard
+              span={transcriptPreview.length > 0 ? "col-span-12 md:col-span-6" : "col-span-12"}
+              title="Manual interview"
+            >
+              <p className="text-sm text-[color:var(--medha-text-primary)]">
                 No recruiter email configured — probe form not generated.
               </p>
-            </div>
+            </BentoCard>
           )}
 
+          {/* Transcript preview — first 6 lines, optional */}
+          {transcriptPreview.length > 0 && (
+            <BentoCard span="col-span-12 md:col-span-6" title="Transcript preview">
+              <ul className="space-y-2 text-sm">
+                {transcriptPreview.map((seg, i) => (
+                  <li key={i} className="text-[color:var(--medha-text-primary)]">
+                    <span className="text-xs font-semibold text-teams-primary mr-2">
+                      {seg.speaker ?? "—"}:
+                    </span>
+                    <span className="text-[color:var(--medha-text-secondary)] line-clamp-2">
+                      {seg.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </BentoCard>
+          )}
+
+          {/* Full domain feedback summary — only render if populated */}
           {interview.filledForm?.header?.domainFeedbackSummary && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900 mb-2">Domain Feedback Summary</h2>
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+            <BentoCard span="col-span-12" title="Domain feedback summary">
+              <p className="text-sm text-[color:var(--medha-text-primary)] leading-relaxed whitespace-pre-wrap">
                 {interview.filledForm.header.domainFeedbackSummary}
               </p>
-            </div>
+            </BentoCard>
           )}
-        </div>
+        </>
       )}
 
+      {/* Failed state — error card + retry + manual upload */}
       {interview.status === "failed" && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-            <p className="text-sm font-semibold text-red-800 mb-1">Generation failed</p>
-            <p className="text-sm text-red-700 font-mono">{interview.errorMessage}</p>
-          </div>
-
-          <button
-            onClick={retry}
-            className="inline-flex w-full items-center justify-center rounded-lg bg-red-600 px-6 py-3 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
-          >
-            Retry
-          </button>
-
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Upload Transcript Manually</h2>
-            <p className="text-xs text-gray-500 mb-4">
+        <>
+          <BentoCard span="col-span-12" accent="error" title="Generation failed">
+            <p className="text-sm font-mono text-teams-error">{interview.errorMessage}</p>
+            <button
+              onClick={retry}
+              className="mt-4 inline-flex items-center justify-center rounded-lg bg-teams-error px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-teams-error/30 hover:opacity-90 transition-opacity"
+            >
+              Retry
+            </button>
+          </BentoCard>
+          <BentoCard span="col-span-12" title="Upload transcript manually">
+            <p className="text-xs text-[color:var(--medha-text-secondary)] mb-4">
               If Teams transcript polling timed out, upload the .vtt or .txt transcript file directly.
             </p>
             <TranscriptUpload interviewId={interview.id} />
-          </div>
-        </div>
+          </BentoCard>
+        </>
       )}
-    </div>
+    </BentoGrid>
   );
 }

@@ -9,11 +9,21 @@
 //   2. Approve: button posts to /api/screen/approve, dashboard redirect.
 //
 // State machine: "idle" → "screening" → "screened" → "approving" → "done".
+//
+// Phase O (2026-06-01) — UI overhaul to Teams Fluent + bento + glass.
+// Business logic (state, fetches, handlers) is preserved byte-identical;
+// only the JSX shape + Tailwind class strings changed. Pre/post-screen
+// states each render their own bento grid; the auto-reject countdown
+// + inline-confirm-reject panel both live INSIDE the post-screen bento.
 // ============================================================
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Spinner } from "@/components/LoadingStates";
+import { BentoCard } from "@/components/ui/BentoCard";
+import { BentoGrid } from "@/components/ui/BentoGrid";
+import { VerdictBadge } from "@/components/ui/VerdictBadge";
+import { SparkleIcon } from "@/components/ui/icons";
 import type { CandidateProfile, ScreeningScore } from "@/types/index";
 
 interface RoleOption {
@@ -159,9 +169,6 @@ export function ScreenClient({
       const data = await res.json();
       if (!data.ok) throw new Error(data.error ?? "Rejection failed");
       toast.success(`Rejection email sent to ${candidateEmail}`);
-      // Reset the screen by re-navigating to itself. router.refresh()
-      // forces a server re-fetch which remounts the component and
-      // wipes all local state (matches the approve flow's redirect).
       router.push("/recruiter/screen");
       router.refresh();
     } catch (err) {
@@ -171,14 +178,8 @@ export function ScreenClient({
     }
   }
 
-  // Auto-reject countdown: when `autoRejectActive` is true, tick down
-  // `autoRejectSecondsLeft` once per second; at 0, fire handleReject.
-  // Cleanup on unmount + the autoRejectCancelled latch cover the
-  // "recruiter clicked Cancel" and "recruiter navigated away" cases.
-  // handleReject is intentionally omitted from deps — its identity
-  // changes every render but its closure captures the latest
-  // report.profile, and we don't want a re-render to restart the
-  // countdown.
+  // Auto-reject countdown — see Phase M plan notes. handleReject is
+  // intentionally omitted from deps (closure captures latest report).
   useEffect(() => {
     if (!autoRejectActive) return;
     if (autoRejectSecondsLeft <= 0) {
@@ -193,351 +194,418 @@ export function ScreenClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRejectActive, autoRejectSecondsLeft]);
 
-  // ── Sub-renders ───────────────────────────────────────────────
+  // ── Pre-screen view ──────────────────────────────────────────
 
-  const verdictColor =
-    report?.score.verdict === "selected"
-      ? "bg-green-100 text-green-800 ring-green-200"
-      : report?.score.verdict === "rejected"
-        ? "bg-red-100 text-red-800 ring-red-200"
-        : "bg-amber-100 text-amber-800 ring-amber-200";
-
-  const difficultyColor =
-    report?.score.recommendedDifficultyBias === "easy"
-      ? "bg-green-50 text-green-700"
-      : report?.score.recommendedDifficultyBias === "medium"
-        ? "bg-amber-50 text-amber-700"
-        : "bg-rose-50 text-rose-700";
-
-  return (
-    <div className="space-y-6">
-      {/* ── Upload form ──────────────────────────── */}
-      <form
-        onSubmit={handleScreen}
-        className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4"
-      >
-        <div>
-          <label className="block text-sm font-medium text-gray-900 mb-1.5">
-            Resume (.pdf or .docx)
-          </label>
-          <input
-            type="file"
-            accept=".pdf,.docx"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            disabled={stage !== "idle"}
-            className="block w-full text-sm text-gray-700 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50"
-          />
-          {file && (
-            <p className="mt-1 text-xs text-gray-500">
-              {file.name} · {(file.size / 1024).toFixed(0)} KB
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-900 mb-1.5">Target role</label>
-          <select
-            value={roleId}
-            onChange={(e) => setRoleId(e.target.value)}
-            disabled={stage !== "idle"}
-            className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-          >
-            {roles.map((r) => (
-              <option key={r.roleId} value={r.roleId}>
-                {r.displayName}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-900 mb-1.5">
-            Your email (recruiter) <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="email"
-            value={recruiterEmail}
-            onChange={(e) => setRecruiterEmail(e.target.value)}
-            disabled={stage !== "idle"}
-            placeholder="you@company.com"
-            className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            We&apos;ll send you the interview confirmation and the probe form when it&apos;s ready.
+  if (!report) {
+    return (
+      <BentoGrid>
+        <BentoCard span="col-span-12" hero>
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-teams-primary/10 px-3 py-1 text-xs font-medium text-teams-primary ring-1 ring-teams-primary/20">
+            <SparkleIcon className="h-3.5 w-3.5" />
+            Screening
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight text-[color:var(--medha-text-primary)] mb-2">
+            Screen a candidate
+          </h1>
+          <p className="text-base text-[color:var(--medha-text-secondary)]">
+            Upload a resume + pick the role. Medha extracts the profile, scores against the
+            competency rubric, and pre-fills the interview record on approval.
           </p>
-        </div>
+        </BentoCard>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-900 mb-1.5">
-            Job description (optional)
-          </label>
-          <textarea
-            rows={4}
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            disabled={stage !== "idle"}
-            placeholder="Paste the JD here. Specific libraries / services will be woven into the question plan."
-            className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-          />
-        </div>
-
-        <div className="flex items-center justify-between pt-1">
-          <p className="text-xs text-gray-500">
-            {stage === "screening" ? "Extracting profile + scoring against rubric…" : "Takes ~10–15 sec."}
-          </p>
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {stage === "screening" ? <Spinner size="sm" /> : null}
-            Screen Candidate
-          </button>
-        </div>
-
-        {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-      </form>
-
-      {/* ── Screening report ──────────────────────── */}
-      {report && (
-        <div className="space-y-4">
-          {/* Verdict header */}
-          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
+        <form onSubmit={handleScreen} className="contents">
+          {/* Resume + role + email — left column */}
+          <BentoCard span="col-span-12 md:col-span-7">
+            <div className="space-y-5">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">{report.profile.candidateName}</h2>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {report.profile.roleAppliedFor} ·{" "}
-                  {report.profile.candidateRelevantYears} relevant /{" "}
-                  {report.profile.candidateTotalYears} total years
-                  {report.profile.candidateEmail && ` · ${report.profile.candidateEmail}`}
-                </p>
-              </div>
-              <div className="flex flex-col items-end gap-1">
-                <span
-                  className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ring-1 ${verdictColor}`}
-                >
-                  {report.score.verdict[0].toUpperCase() + report.score.verdict.slice(1)} ·{" "}
-                  {(report.score.confidence * 100).toFixed(0)}%
-                </span>
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${difficultyColor}`}
-                >
-                  Difficulty: {report.score.recommendedDifficultyBias}
-                </span>
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-gray-700 leading-relaxed">{report.score.summary}</p>
-          </div>
-
-          {/* Strengths + Gaps grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
-              <h3 className="text-sm font-semibold text-green-900 mb-2">Strengths</h3>
-              <ul className="space-y-1.5">
-                {report.score.strengths.map((s, i) => (
-                  <li key={i} className="text-sm text-green-900 flex gap-2">
-                    <span className="text-green-600">✓</span>
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
-              <h3 className="text-sm font-semibold text-rose-900 mb-2">Gaps to probe</h3>
-              <ul className="space-y-1.5">
-                {report.score.gaps.map((g, i) => (
-                  <li key={i} className="text-sm text-rose-900 flex gap-2">
-                    <span className="text-rose-600">·</span>
-                    <span>{g}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* Skills + Projects */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-2">Key skills</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {report.profile.keySkills.map((s, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-            {report.profile.notableProjects.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-2">Notable projects</h3>
-                <ul className="space-y-1">
-                  {report.profile.notableProjects.map((p, i) => (
-                    <li key={i} className="text-sm text-gray-700">
-                      • {p}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          {/* Approve controls */}
-          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
-            <h3 className="text-base font-semibold text-gray-900">Approve + schedule</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1.5">
-                  Scheduled start
+                <label className="block text-sm font-medium text-[color:var(--medha-text-primary)] mb-1.5">
+                  Resume (.pdf or .docx)
                 </label>
-                <input
-                  type="datetime-local"
-                  value={scheduledFor}
-                  onChange={(e) => setScheduledFor(e.target.value)}
-                  disabled={stage === "approving"}
-                  className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-                />
+                <div className={`rounded-xl border-2 border-dashed p-5 transition-colors ${file ? "border-teams-primary/60 bg-teams-primary/5" : "border-[color:var(--medha-border-accent)] hover:border-teams-primary/40"}`}>
+                  <input
+                    type="file"
+                    accept=".pdf,.docx"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    disabled={stage !== "idle"}
+                    className="block w-full text-sm text-[color:var(--medha-text-secondary)] file:mr-4 file:rounded-md file:border-0 file:bg-teams-primary/10 file:px-4 file:py-2 file:text-sm file:font-medium file:text-teams-primary hover:file:bg-teams-primary/20 disabled:opacity-50"
+                  />
+                  {file && (
+                    <p className="mt-2 text-xs text-[color:var(--medha-text-secondary)]">
+                      {file.name} · {(file.size / 1024).toFixed(0)} KB
+                    </p>
+                  )}
+                </div>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1.5">
-                  Interview style
+                <label className="block text-sm font-medium text-[color:var(--medha-text-primary)] mb-1.5">
+                  Target role
                 </label>
                 <select
-                  value={conductMode}
-                  onChange={(e) => setConductMode(e.target.value as "manual" | "auto")}
-                  disabled={stage === "approving"}
-                  className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  value={roleId}
+                  onChange={(e) => setRoleId(e.target.value)}
+                  disabled={stage !== "idle"}
+                  className="block w-full rounded-md border border-[color:var(--medha-border-accent)] bg-white/60 px-3 py-2 text-sm shadow-sm focus:border-teams-primary focus:ring-1 focus:ring-teams-primary disabled:opacity-50"
                 >
-                  <option value="auto">🤖 Auto (Medha runs it)</option>
-                  <option value="manual">👤 Manual (recruiter drives)</option>
+                  {roles.map((r) => (
+                    <option key={r.roleId} value={r.roleId}>
+                      {r.displayName}
+                    </option>
+                  ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[color:var(--medha-text-primary)] mb-1.5">
+                  Your email (recruiter) <span className="text-teams-error">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={recruiterEmail}
+                  onChange={(e) => setRecruiterEmail(e.target.value)}
+                  disabled={stage !== "idle"}
+                  placeholder="you@company.com"
+                  className="block w-full rounded-md border border-[color:var(--medha-border-accent)] bg-white/60 px-3 py-2 text-sm shadow-sm focus:border-teams-primary focus:ring-1 focus:ring-teams-primary disabled:opacity-50"
+                />
+                <p className="mt-1 text-xs text-[color:var(--medha-text-secondary)]">
+                  We&apos;ll send you the interview confirmation and the probe form when it&apos;s ready.
+                </p>
+              </div>
             </div>
-            {/* 2026-05-31 — Auto-reject recommendation banner.
-                Fires when the LLM verdict is "rejected" OR the verdict
-                is "borderline" with confidence below the threshold.
-                When canSendRejection is true (candidate has an email),
-                shows a 10s cancellable countdown that auto-fires the
-                rejection. When canSendRejection is false (no email
-                extracted from the resume), shows an amber suppressed
-                banner instead and leaves the Reject button disabled. */}
-            {isAutoReject && canSendRejection && (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
-                <p className="text-sm font-semibold text-amber-900">
-                  Recommendation: Reject
-                </p>
-                <p className="text-sm text-amber-800 mt-1">
-                  {report.score.verdict === "rejected"
-                    ? `Verdict is "rejected" with ${Math.round(report.score.confidence * 100)}% confidence.`
-                    : `Confidence ${Math.round(report.score.confidence * 100)}% is below the auto-reject threshold of ${Math.round(AUTO_REJECT_THRESHOLD * 100)}%.`}
-                </p>
-                {autoRejectActive ? (
-                  <div className="mt-3 flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-amber-900">
-                      Sending rejection email to{" "}
-                      <strong>{candidateEmail}</strong> in{" "}
-                      {autoRejectSecondsLeft}s…
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAutoRejectCancelled(true)}
-                      className="rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-amber-700">
-                    Auto-rejection cancelled. Use the Reject Now button
-                    below to send manually.
-                  </p>
-                )}
-              </div>
-            )}
+          </BentoCard>
 
-            {isAutoReject && !canSendRejection && (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
-                <p className="text-sm font-semibold text-amber-900">
-                  Auto-reject suppressed
+          {/* JD + Submit — right column */}
+          <BentoCard span="col-span-12 md:col-span-5">
+            <div className="flex flex-col h-full">
+              <label className="block text-sm font-medium text-[color:var(--medha-text-primary)] mb-1.5">
+                Job description <span className="text-[color:var(--medha-text-secondary)]">(optional)</span>
+              </label>
+              <textarea
+                rows={9}
+                value={jdText}
+                onChange={(e) => setJdText(e.target.value)}
+                disabled={stage !== "idle"}
+                placeholder="Paste the JD here. Specific libraries / services will be woven into the question plan."
+                className="block w-full flex-1 rounded-md border border-[color:var(--medha-border-accent)] bg-white/60 px-3 py-2 text-sm shadow-sm focus:border-teams-primary focus:ring-1 focus:ring-teams-primary disabled:opacity-50"
+              />
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-xs text-[color:var(--medha-text-secondary)]">
+                  {stage === "screening" ? "Extracting profile + scoring against rubric…" : "Takes ~10–15 sec."}
                 </p>
-                <p className="text-sm text-amber-800 mt-1">
-                  No candidate email on file — open the resume PDF and
-                  reach out manually, or revisit the screen with a
-                  resume that includes the email.
-                </p>
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  className="inline-flex items-center gap-2 rounded-lg bg-teams-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-teams-primary/30 hover:bg-teams-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {stage === "screening" ? <Spinner size="sm" /> : null}
+                  Screen Candidate
+                </button>
               </div>
-            )}
+              {error && (
+                <div className="mt-3 rounded-md border border-teams-error/30 bg-teams-error/10 p-3 text-sm text-teams-error">
+                  {error}
+                </div>
+              )}
+            </div>
+          </BentoCard>
+        </form>
+      </BentoGrid>
+    );
+  }
 
-            {/* Button row — either the confirm-reject inline panel OR
-                the normal Reject + (conditional) Approve buttons.
-                Approve+Schedule is hidden entirely when isAutoReject is
-                true; recruiter must Cancel the countdown to override. */}
-            {confirmReject ? (
-              <div className="flex items-center justify-end gap-2 pt-1 flex-wrap">
-                <span className="text-sm text-gray-700 mr-auto">
-                  Send rejection email to{" "}
-                  <strong>{candidateEmail}</strong>?
+  // ── Post-screen view ─────────────────────────────────────────
+
+  const confidencePct = Math.round(report.score.confidence * 100);
+
+  return (
+    <BentoGrid>
+      {/* Verdict hero */}
+      <BentoCard span="col-span-12" hero>
+        <div className="flex items-start justify-between gap-6 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <div className="mb-3">
+              <VerdictBadge verdict={report.score.verdict} size="lg" />
+            </div>
+            <h2 className="text-3xl font-bold tracking-tight text-[color:var(--medha-text-primary)]">
+              {report.profile.candidateName}
+            </h2>
+            <p className="text-sm text-[color:var(--medha-text-secondary)] mt-1">
+              {report.profile.roleAppliedFor} ·{" "}
+              {report.profile.candidateRelevantYears} relevant /{" "}
+              {report.profile.candidateTotalYears} total years
+              {report.profile.candidateEmail && ` · ${report.profile.candidateEmail}`}
+            </p>
+            <p className="mt-4 text-sm text-[color:var(--medha-text-primary)] leading-relaxed">
+              {report.score.summary}
+            </p>
+          </div>
+          <ConfidenceDial value={report.score.confidence} />
+        </div>
+
+        {/* Auto-reject sub-banner inside the hero — see Phase M for state semantics. */}
+        {isAutoReject && canSendRejection && (
+          <div className="mt-5 rounded-xl border border-teams-warning/40 bg-teams-warning/10 p-4">
+            <p className="text-sm font-semibold text-teams-warning">Recommendation: Reject</p>
+            <p className="text-sm text-[color:var(--medha-text-primary)] mt-1">
+              {report.score.verdict === "rejected"
+                ? `Verdict is "rejected" with ${confidencePct}% confidence.`
+                : `Confidence ${confidencePct}% is below the auto-reject threshold of ${Math.round(AUTO_REJECT_THRESHOLD * 100)}%.`}
+            </p>
+            {autoRejectActive ? (
+              <div className="mt-3 flex items-center gap-3 flex-wrap">
+                <span className="text-sm text-[color:var(--medha-text-primary)]">
+                  Sending rejection email to{" "}
+                  <strong>{candidateEmail}</strong> in {autoRejectSecondsLeft}s…
                 </span>
                 <button
                   type="button"
-                  onClick={() => setConfirmReject(false)}
-                  disabled={rejecting}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  onClick={() => setAutoRejectCancelled(true)}
+                  className="rounded-md border border-teams-warning/50 bg-white/60 px-3 py-1 text-xs font-medium text-teams-warning hover:bg-white/80"
                 >
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  onClick={handleReject}
-                  disabled={rejecting}
-                  className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {rejecting ? <Spinner size="sm" /> : null}
-                  Confirm Reject
-                </button>
               </div>
             ) : (
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setConfirmReject(true)}
-                  disabled={
-                    !canSendRejection ||
-                    stage === "approving" ||
-                    rejecting
-                  }
-                  title={
-                    canSendRejection
-                      ? undefined
-                      : "Candidate email missing — cannot send rejection"
-                  }
-                  className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isAutoReject ? "Reject Now" : "Reject"}
-                </button>
-                {!isAutoReject && (
-                  <button
-                    type="button"
-                    onClick={handleApprove}
-                    disabled={stage === "approving"}
-                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {stage === "approving" ? <Spinner size="sm" /> : null}
-                    Approve + Schedule
-                  </button>
-                )}
-              </div>
+              <p className="mt-2 text-xs text-[color:var(--medha-text-secondary)]">
+                Auto-rejection cancelled. Use the Reject Now button below to send manually.
+              </p>
             )}
           </div>
+        )}
+
+        {isAutoReject && !canSendRejection && (
+          <div className="mt-5 rounded-xl border border-teams-warning/40 bg-teams-warning/10 p-4">
+            <p className="text-sm font-semibold text-teams-warning">Auto-reject suppressed</p>
+            <p className="text-sm text-[color:var(--medha-text-primary)] mt-1">
+              No candidate email on file — open the resume PDF and reach out manually, or
+              revisit the screen with a resume that includes the email.
+            </p>
+          </div>
+        )}
+      </BentoCard>
+
+      {/* Strengths + Gaps */}
+      <BentoCard span="col-span-12 md:col-span-6" accent="success" title="Strengths">
+        <ul className="space-y-2">
+          {report.score.strengths.map((s, i) => (
+            <li key={i} className="text-sm text-[color:var(--medha-text-primary)] flex gap-2">
+              <span className="text-teams-success font-bold">✓</span>
+              <span>{s}</span>
+            </li>
+          ))}
+        </ul>
+      </BentoCard>
+      <BentoCard span="col-span-12 md:col-span-6" accent="error" title="Gaps to probe">
+        <ul className="space-y-2">
+          {report.score.gaps.map((g, i) => (
+            <li key={i} className="text-sm text-[color:var(--medha-text-primary)] flex gap-2">
+              <span className="text-teams-error font-bold">·</span>
+              <span>{g}</span>
+            </li>
+          ))}
+        </ul>
+      </BentoCard>
+
+      {/* Skills + projects */}
+      <BentoCard span="col-span-12" title="Profile">
+        <div className="space-y-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--medha-text-secondary)] mb-2">
+              Key skills
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {report.profile.keySkills.map((s, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center rounded-full bg-teams-primary/10 px-2.5 py-0.5 text-xs font-medium text-teams-primary"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          </div>
+          {report.profile.notableProjects.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--medha-text-secondary)] mb-2">
+                Notable projects
+              </div>
+              <ul className="space-y-1">
+                {report.profile.notableProjects.map((p, i) => (
+                  <li key={i} className="text-sm text-[color:var(--medha-text-primary)]">
+                    • {p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-      )}
+      </BentoCard>
+
+      {/* Approve form + difficulty pill */}
+      <BentoCard span="col-span-12 md:col-span-7" title="Approve + schedule">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-[color:var(--medha-text-primary)] mb-1.5">
+              Scheduled start
+            </label>
+            <input
+              type="datetime-local"
+              value={scheduledFor}
+              onChange={(e) => setScheduledFor(e.target.value)}
+              disabled={stage === "approving"}
+              className="block w-full rounded-md border border-[color:var(--medha-border-accent)] bg-white/60 px-3 py-2 text-sm shadow-sm focus:border-teams-primary focus:ring-1 focus:ring-teams-primary disabled:opacity-50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[color:var(--medha-text-primary)] mb-1.5">
+              Interview style
+            </label>
+            <select
+              value={conductMode}
+              onChange={(e) => setConductMode(e.target.value as "manual" | "auto")}
+              disabled={stage === "approving"}
+              className="block w-full rounded-md border border-[color:var(--medha-border-accent)] bg-white/60 px-3 py-2 text-sm shadow-sm focus:border-teams-primary focus:ring-1 focus:ring-teams-primary disabled:opacity-50"
+            >
+              <option value="auto">🤖 Auto (Medha runs it)</option>
+              <option value="manual">👤 Manual (recruiter drives)</option>
+            </select>
+          </div>
+        </div>
+        <p className="mt-4 text-xs text-[color:var(--medha-text-secondary)]">
+          Recommended difficulty: <strong className="text-[color:var(--medha-text-primary)]">{report.score.recommendedDifficultyBias}</strong> · the question plan will bias toward this tier.
+        </p>
+      </BentoCard>
+
+      {/* Brief — LLM 1-liner */}
+      <BentoCard span="col-span-12 md:col-span-5" title="Brief for the interviewer">
+        <p className="text-sm text-[color:var(--medha-text-primary)] leading-relaxed">
+          Medha will probe the gaps above first, then move to strengths for depth. Watch for
+          how the candidate handles the {report.score.recommendedDifficultyBias} questions —
+          that&apos;s where the {report.score.verdict === "borderline" ? "borderline" : report.score.verdict} verdict will firm up or shift.
+        </p>
+      </BentoCard>
+
+      {/* Action bar — outside a card, full width */}
+      <div className="col-span-12">
+        {confirmReject ? (
+          <div className="flex items-center justify-end gap-2 flex-wrap p-4 rounded-xl glass">
+            <span className="text-sm text-[color:var(--medha-text-primary)] mr-auto">
+              Send rejection email to <strong>{candidateEmail}</strong>?
+            </span>
+            <button
+              type="button"
+              onClick={() => setConfirmReject(false)}
+              disabled={rejecting}
+              className="rounded-lg border border-[color:var(--medha-border-accent)] bg-white/60 px-4 py-2 text-sm font-medium text-[color:var(--medha-text-primary)] hover:bg-white/80 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleReject}
+              disabled={rejecting}
+              className="inline-flex items-center gap-2 rounded-lg bg-teams-error px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-teams-error/30 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            >
+              {rejecting ? <Spinner size="sm" /> : null}
+              Confirm Reject
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmReject(true)}
+              disabled={
+                !canSendRejection ||
+                stage === "approving" ||
+                rejecting
+              }
+              title={
+                canSendRejection
+                  ? undefined
+                  : "Candidate email missing — cannot send rejection"
+              }
+              className="inline-flex items-center rounded-lg border border-[color:var(--medha-border-accent)] bg-white/40 px-4 py-2 text-sm font-medium text-[color:var(--medha-text-primary)] hover:bg-white/60 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isAutoReject ? "Reject Now" : "Reject"}
+            </button>
+            {!isAutoReject && (
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={stage === "approving"}
+                className="inline-flex items-center gap-2 rounded-lg bg-teams-primary px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-teams-primary/30 hover:bg-teams-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {stage === "approving" ? <Spinner size="sm" /> : null}
+                Approve + Schedule
+              </button>
+            )}
+          </div>
+        )}
+        {error && (
+          <div className="mt-3 rounded-md border border-teams-error/30 bg-teams-error/10 p-3 text-sm text-teams-error">
+            {error}
+          </div>
+        )}
+      </div>
+    </BentoGrid>
+  );
+}
+
+// ── Confidence dial ──────────────────────────────────────────────
+// 120px SVG ring. value is 0-1; we render the arc length as a
+// fraction of the ring's circumference via stroke-dasharray. The
+// stroke is currentColor so the parent's `text-teams-primary` (or
+// similar) drives the hue.
+function ConfidenceDial({ value }: { value: number }) {
+  const pct = Math.max(0, Math.min(1, value));
+  const size = 120;
+  const stroke = 10;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dash = circumference * pct;
+  return (
+    <div
+      role="img"
+      aria-label={`Confidence: ${Math.round(pct * 100)} percent`}
+      className="flex-shrink-0 text-teams-primary"
+    >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity={0.15}
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circumference - dash}`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <text
+          x={size / 2}
+          y={size / 2}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill="currentColor"
+          fontSize={22}
+          fontWeight={700}
+        >
+          {Math.round(pct * 100)}%
+        </text>
+      </svg>
+      <div className="text-center text-xs font-medium text-[color:var(--medha-text-secondary)] mt-1">
+        Confidence
+      </div>
     </div>
   );
 }

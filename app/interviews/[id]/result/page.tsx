@@ -10,8 +10,8 @@ export default async function ResultPage({ params }: { params: Promise<{ id: str
   if (!interview) notFound();
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10">
+    <main className="max-w-4xl mx-auto px-6 py-10">
       <ResultClient interview={interview} />
-    </div>
+    </main>
   );
 }
